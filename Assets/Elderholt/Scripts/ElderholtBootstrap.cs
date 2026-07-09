@@ -19,7 +19,7 @@ namespace Elderholt
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void AutoBoot()
         {
-            if (FindObjectOfType<ElderholtBootstrap>() != null) return;
+            if (FindAnyObjectByType<ElderholtBootstrap>() != null) return;
             new GameObject("Elderholt").AddComponent<ElderholtBootstrap>();
         }
 
@@ -94,7 +94,7 @@ namespace Elderholt
             cam.farClipPlane = 300f;
 
             Light sun = null;
-            foreach (Light l in FindObjectsOfType<Light>())
+            foreach (Light l in FindObjectsByType<Light>(FindObjectsSortMode.None))
                 if (l.type == LightType.Directional) { sun = l; break; }
             if (sun == null) sun = new GameObject("Sun").AddComponent<Light>();
             sun.type = LightType.Directional;
@@ -384,7 +384,7 @@ namespace Elderholt
             Event e = Event.current;
             GUI.SetNextControlName("chatInput");
             chatDraft = GUI.TextField(new Rect(12, Screen.height - 30, 320, 22), chatDraft, 120);
-            if (e.type == EventType.KeyDown && (e.keyCode == KeyCode.Return || e.keyCode == KeyCode.KeypadEnter))
+            if (e.type == UnityEngine.EventType.KeyDown && (e.keyCode == KeyCode.Return || e.keyCode == KeyCode.KeypadEnter))
             {
                 string t = chatDraft.Trim();
                 if (t.Length > 0) { SendToServer(Intent.Chat(t)); chatDraft = ""; }

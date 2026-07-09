@@ -38,6 +38,18 @@ namespace Elderholt
         public static readonly Color Legs = Hex(0x4a4238);
         public static readonly Color Marker = Hex(0xf0d060);
 
+        // Phase 2 — camp & underground palette.
+        public static readonly Color Stone = Hex(0x6a675f);
+        public static readonly Color ChamberFloor = Hex(0x55524a);
+        public static readonly Color ChamberWall = Hex(0x484540);
+        public static readonly Color Timber = Hex(0x8a6a3a);
+        public static readonly Color Canopy = Hex(0xa04a3a);
+        public static readonly Color Ember = Hex(0xd86a30);
+        public static readonly Color Anvil = Hex(0x3a3a40);
+        public static readonly Color Board = Hex(0x7a5a34);
+        public static readonly Color GlintTin = Hex(0xb8c0c8);
+        public static readonly Color GlintIron = Hex(0x9a5a48);
+
         static Shader lit;
 
         public static Material Mat(Color c)
@@ -171,5 +183,12 @@ namespace Elderholt
     public class OreRockRef : MonoBehaviour
     {
         public string id;
+    }
+
+    // Marks a camp/mine station (stall, furnace, anvil, board, entrance, shaft)
+    // so the picker can walk the player over and the UI can open the right panel.
+    public class StationRef : MonoBehaviour
+    {
+        public string kind;
     }
 }

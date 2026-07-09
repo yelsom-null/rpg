@@ -7,18 +7,38 @@ namespace Elderholt
     // ============================================================================
     //  Persistence model. In the browser prototype this was localStorage; here it
     //  is a JSON file under Application.persistentDataPath. Character truth (xp,
-    //  position) and disposable zone state (node ore/respawn) both round-trip so
-    //  the "state survives a redeploy" exit test holds after a server restart.
-    //  JsonUtility-friendly: [Serializable] classes, no dictionaries.
+    //  gold, inventory, position) and disposable zone state (node ore/respawn,
+    //  band instability) both round-trip so the "state survives a redeploy" exit
+    //  test holds after a server restart.
+    //  JsonUtility-friendly: [Serializable] classes, lists instead of dicts.
     // ============================================================================
+
+    [Serializable]
+    public class ItemSave
+    {
+        public string item;
+        public int qty;
+    }
 
     [Serializable]
     public class CharSave
     {
         public string id;
-        public int xp;
+        public int xp;         // Mining
+        public int smithXp;    // Smithing
+        public int gold;
+        public string pickaxe;
         public float x;
         public float z;
+        public int band;
+        public List<ItemSave> bag = new List<ItemSave>();
+
+        // Active/offered contract (empty item = none).
+        public string cItem;
+        public int cQty;
+        public int cGold;
+        public long cDeadline;
+        public bool cAccepted;
     }
 
     [Serializable]
@@ -26,6 +46,7 @@ namespace Elderholt
     {
         public int ore;
         public int respawn;
+        public float richness;   // hidden density read by prospecting
     }
 
     [Serializable]
@@ -34,6 +55,7 @@ namespace Elderholt
         public long tick;
         public List<CharSave> chr = new List<CharSave>();
         public List<NodeSave> nodes = new List<NodeSave>();
+        public int[] instability = new int[Bands.Count];
     }
 
     // XP curve from the handoff: XP to complete level L = floor(80 * 1.09^L),

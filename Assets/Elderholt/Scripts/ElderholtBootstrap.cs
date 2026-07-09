@@ -9,8 +9,13 @@ namespace Elderholt
     //  ZoneServer, the Thornmere world, the local player's client and the Fenn
     //  bot, connects them through a simulated-latency pipe, and then each frame:
     //  advances the 600 ms tick, delivers piped messages, interpolates avatars
-    //  between the last two snapshots, drives the orbit camera, turns clicks into
-    //  intents, and paints the monospace HUD/chat overlay.
+    //  between the last two snapshots, drives the orbit camera, turns clicks and
+    //  keys into intents, and paints the monospace HUD/chat/panel overlay.
+    //
+    //  Phase 2 adds: depth-band ambience, the strike-rhythm indicator, wedge via
+    //  right-click, shoring, the bag, and the stall / furnace / anvil / notice-
+    //  board context panels. Keys: Space strike/hammer · W pump · Q quench ·
+    //  T shore · B bag · E descend · R ascend.
     //
     //  Auto-boots on Play (no scene wiring required) via RuntimeInitialize.
     // ============================================================================
@@ -40,6 +45,10 @@ namespace Elderholt
         // input drag tracking
         bool pointerDown, dragging;
         Vector3 lastMouse;
+        bool chatFocused;
+        bool bagOpen;
+        string mineTargetId;    // node we last sent interact for (strike indicator)
+        int shownBand;          // band whose ambience is currently applied
 
         readonly Dictionary<string, Vector2> shown = new Dictionary<string, Vector2>
         {
@@ -55,6 +64,9 @@ namespace Elderholt
         struct ChatMsg { public string from; public string text; public bool you; }
         readonly List<ChatMsg> chatLog = new List<ChatMsg>();
         string chatDraft = "";
+
+        // Rects the IMGUI drew last frame, so world clicks don't fire through panels.
+        readonly List<Rect> guiRects = new List<Rect>();
 
         public double NowMs => Time.realtimeSinceStartupAsDouble * 1000.0;
 
@@ -77,6 +89,7 @@ namespace Elderholt
             server = new ZoneServer();
             world = new ThornmereWorld(server);
             ConnectClients();
+            shownBand = 0;
         }
 
         void SetupEnvironment()
@@ -108,11 +121,29 @@ namespace Elderholt
             RenderSettings.ambientEquatorColor = Color.Lerp(Geo.HemiSky, Geo.HemiGround, 0.5f);
             RenderSettings.ambientGroundColor = Geo.HemiGround;
 
+            ApplySurfaceAtmosphere();
+        }
+
+        void ApplySurfaceAtmosphere()
+        {
+            cam.backgroundColor = Geo.Sky;
             RenderSettings.fog = true;
             RenderSettings.fogColor = Geo.Sky;
             RenderSettings.fogMode = FogMode.Linear;
             RenderSettings.fogStartDistance = 55f;
             RenderSettings.fogEndDistance = 110f;
+            RenderSettings.ambientIntensity = 1f;
+        }
+
+        void ApplyUndergroundAtmosphere(int band)
+        {
+            Color dark = Geo.Hex(0x14120e);
+            cam.backgroundColor = dark;
+            RenderSettings.fog = true;
+            RenderSettings.fogColor = dark;
+            RenderSettings.fogMode = FogMode.Linear;
+            RenderSettings.fogStartDistance = band >= 2 ? 8f : 12f;
+            RenderSettings.fogEndDistance = band >= 2 ? 34f : 48f;
         }
 
         // Simulated one-way latency, matching the prototype's lat() jitter.
@@ -130,6 +161,33 @@ namespace Elderholt
 
         void SendToServer(Intent i) => Schedule(LatSeconds(), () => server.SubmitIntent("you", i));
         void BotSend(Intent i) => Schedule(LatSeconds(), () => server.SubmitIntent("fenn", i));
+
+        // ---------- snapshot helpers ----------
+        Snapshot Snap => gameClient.Next.snap;
+
+        PlayerSnap Me()
+        {
+            Snapshot s = Snap;
+            return s?.players.Find(p => p.id == "you");
+        }
+
+        BagSnap MyBag()
+        {
+            Snapshot s = Snap;
+            return s != null && s.bags.TryGetValue("you", out BagSnap b) ? b : null;
+        }
+
+        ForgeSnap MyForge()
+        {
+            Snapshot s = Snap;
+            return s != null && s.forges.TryGetValue("you", out ForgeSnap f) ? f : null;
+        }
+
+        bool MeNear(Vector2 pos, float reach)
+        {
+            Vector2 me = shown["you"];
+            return (me - pos).sqrMagnitude <= reach * reach;
+        }
 
         // ---------- loop ----------
         void Update()
@@ -151,7 +209,8 @@ namespace Elderholt
             HandleInput();
             RenderInterpolated(dt);
             UpdateFloats(dt);
-            UpdateCamera();
+            UpdateAtmosphere();
+            UpdateCamera(dt);
         }
 
         void RunScheduler()
@@ -180,21 +239,34 @@ namespace Elderholt
             {
                 if (!world.Avatars.TryGetValue(pb.id, out Avatar av)) continue;
                 PlayerSnap pa = g.HasPrev ? g.Prev.snap.players.Find(p => p.id == pb.id) : null;
-                float x = pa != null ? pa.x + (pb.x - pa.x) * alpha : pb.x;
-                float z = pa != null ? pa.z + (pb.z - pa.z) * alpha : pb.z;
+                // Don't interpolate across a band teleport.
+                bool jump = pa != null && (Mathf.Abs(pb.x - pa.x) > 30f || Mathf.Abs(pb.z - pa.z) > 30f);
+                float x = pa != null && !jump ? pa.x + (pb.x - pa.x) * alpha : pb.x;
+                float z = pa != null && !jump ? pa.z + (pb.z - pa.z) * alpha : pb.z;
                 shown[pb.id] = new Vector2(x, z);
                 av.Place(x, z, pb.dir);
                 av.Animate(pb.anim, dt);
             }
 
-            foreach (NodeSnap n in b.nodes) world.SetRockVisible(n.id, n.ore > 0);
+            foreach (NodeSnap n in b.nodes)
+            {
+                world.SetRockVisible(n.id, n.ore > 0);
+                world.SetSeamHint(n.id, n.seamHint && n.ore > 0);
+            }
 
-            // spawn floating XP at the interpolated miner position
+            // floating text at the interpolated position
             while (g.PendingXpFloats.Count > 0)
             {
                 GameEvent ev = g.PendingXpFloats.Dequeue();
                 Vector2 at = shown.TryGetValue(ev.who, out Vector2 s) ? s : new Vector2(ev.x, ev.z);
                 floats.Add(new Floaty { text = "+" + ev.amount + " xp", pos = new Vector3(at.x, 2.4f, at.y), life = 1.2f });
+            }
+            while (g.PendingNoteFloats.Count > 0)
+            {
+                GameEvent ev = g.PendingNoteFloats.Dequeue();
+                Vector2 at = shown.TryGetValue(ev.who, out Vector2 s) ? s : new Vector2(ev.x, ev.z);
+                string text = ev.type == EventType.OreGained ? "+" + ev.qty + " " + Items.Pretty(ev.item) : Items.Pretty(ev.item);
+                floats.Add(new Floaty { text = text, pos = new Vector3(at.x, 2.9f, at.y), life = 1.5f });
             }
         }
 
@@ -214,19 +286,38 @@ namespace Elderholt
             }
         }
 
-        void UpdateCamera()
+        void UpdateAtmosphere()
+        {
+            PlayerSnap me = Me();
+            int band = me != null ? me.band : 0;
+            if (band == shownBand) return;
+            shownBand = band;
+            if (band == 0) ApplySurfaceAtmosphere();
+            else ApplyUndergroundAtmosphere(band);
+        }
+
+        void UpdateCamera(float dt)
         {
             Vector2 me = shown["you"];
             float cx = me.x + dist * Mathf.Sin(yaw) * Mathf.Cos(pitch);
             float cz = me.y + dist * Mathf.Cos(yaw) * Mathf.Cos(pitch);
-            cam.transform.position = new Vector3(cx, 1.2f + dist * Mathf.Sin(pitch), cz);
+            Vector3 pos = new Vector3(cx, 1.2f + dist * Mathf.Sin(pitch), cz);
+
+            if (gameClient.shake > 0f)
+            {
+                gameClient.shake = Mathf.Max(0f, gameClient.shake - dt);
+                float a = gameClient.shake * 0.35f;
+                pos += new Vector3((UnityEngine.Random.value - 0.5f) * a, (UnityEngine.Random.value - 0.5f) * a, (UnityEngine.Random.value - 0.5f) * a);
+            }
+
+            cam.transform.position = pos;
             cam.transform.LookAt(new Vector3(me.x, 1.2f, me.y));
         }
 
         // ---------- input -> intents ----------
         void HandleInput()
         {
-            if (Input.mouseScrollDelta.y != 0f)
+            if (Input.mouseScrollDelta.y != 0f && !PointerOverUI())
                 dist = Mathf.Clamp(dist - Input.mouseScrollDelta.y * 1.5f, 6f, 34f);
 
             if (Input.GetMouseButtonDown(0))
@@ -246,18 +337,55 @@ namespace Elderholt
             }
             else if (pointerDown && Input.GetMouseButtonUp(0))
             {
-                if (!dragging && !PointerOverChat()) Pick();
+                if (!dragging && !PointerOverUI()) Pick(false);
                 pointerDown = false;
+            }
+
+            if (Input.GetMouseButtonUp(1) && !PointerOverUI()) Pick(true);
+
+            if (chatFocused) return;   // typing — keys stay out of the world
+
+            PlayerSnap me = Me();
+            ForgeSnap forge = MyForge();
+
+            if (Input.GetKeyDown(KeyCode.Space))
+            {
+                if (forge != null) SendToServer(Intent.Hammer());
+                else if (me != null && me.anim == "mine") SendToServer(Intent.Strike());
+            }
+            if (Input.GetKeyDown(KeyCode.W) && forge != null) SendToServer(Intent.Pump());
+            if (Input.GetKeyDown(KeyCode.Q) && forge != null) SendToServer(Intent.Quench());
+            if (Input.GetKeyDown(KeyCode.T) && me != null && me.band > 0) SendToServer(Intent.Shore());
+            if (Input.GetKeyDown(KeyCode.B)) bagOpen = !bagOpen;
+            if (Input.GetKeyDown(KeyCode.E)) TryBandMove(+1);
+            if (Input.GetKeyDown(KeyCode.R)) TryBandMove(-1);
+        }
+
+        void TryBandMove(int delta)
+        {
+            PlayerSnap me = Me();
+            if (me == null) return;
+            if (delta > 0)
+            {
+                bool near = me.band == 0
+                    ? MeNear(ZoneServer.EntrancePos, ZoneServer.StationReach)
+                    : MeNear(new Vector2(Bands.All[me.band].originX, Bands.All[me.band].originZ), ZoneServer.StationReach + 2f);
+                if (near && me.band < Bands.Count - 1) SendToServer(Intent.Descend());
+            }
+            else if (me.band > 0 && MeNear(new Vector2(Bands.All[me.band].originX, Bands.All[me.band].originZ), ZoneServer.StationReach + 2f))
+            {
+                SendToServer(Intent.Ascend());
             }
         }
 
-        bool PointerOverChat()
+        bool PointerOverUI()
         {
-            // bottom-left chat input strip
-            return Input.mousePosition.x < 340f && Input.mousePosition.y < 34f;
+            Vector2 m = new Vector2(Input.mousePosition.x, Screen.height - Input.mousePosition.y);
+            foreach (Rect r in guiRects) if (r.Contains(m)) return true;
+            return false;
         }
 
-        void Pick()
+        void Pick(bool wedge)
         {
             Ray ray = cam.ScreenPointToRay(Input.mousePosition);
             if (!Physics.Raycast(ray, out RaycastHit hit, 500f)) return;
@@ -265,16 +393,34 @@ namespace Elderholt
             OreRockRef rock = hit.collider.GetComponentInParent<OreRockRef>();
             if (rock != null)
             {
-                SendToServer(Intent.Interact(rock.id));
+                mineTargetId = rock.id;
+                SendToServer(wedge ? Intent.Wedge(rock.id) : Intent.Interact(rock.id));
                 ShowMarker(world.RockGroups[rock.id].transform.position);
-                gameClient.status = "intent sent: interact " + rock.id;
+                gameClient.status = wedge ? "bracing the wedge at " + rock.id : "intent sent: interact " + rock.id;
                 return;
             }
-            if (hit.collider.gameObject == world.Ground)
+
+            StationRef station = hit.collider.GetComponentInParent<StationRef>();
+            if (station != null)
             {
-                SendToServer(Intent.Move(hit.point.x, hit.point.z));
-                ShowMarker(hit.point);
-                gameClient.status = "";
+                Vector3 sp = station.transform.position;
+                SendToServer(Intent.Move(sp.x + 1.4f, sp.z - 1.4f));
+                ShowMarker(sp);
+                gameClient.status = station.kind == "entrance" ? "the shaft mouth — E to descend"
+                    : station.kind == "shaft" ? "the ladder — E down, R up"
+                    : "walking to the " + station.kind;
+                return;
+            }
+
+            foreach (GameObject walk in world.Walkable)
+            {
+                if (hit.collider.gameObject == walk)
+                {
+                    SendToServer(Intent.Move(hit.point.x, hit.point.z));
+                    ShowMarker(hit.point);
+                    gameClient.status = "";
+                    return;
+                }
             }
         }
 
@@ -285,15 +431,19 @@ namespace Elderholt
         }
 
         // ---------- UI ----------
-        GUIStyle panelText, nameTagStyle, floatStyle, chatYou, chatOther;
-        Texture2D panelBg;
+        GUIStyle panelText, nameTagStyle, floatStyle, chatYou, chatOther, warnText, headText;
+        Texture2D panelBg, barBg, barFill;
 
         void EnsureStyles()
         {
             if (panelBg != null) return;
             panelBg = Solid(new Color(20 / 255f, 24 / 255f, 16 / 255f, 0.82f));
+            barBg = Solid(new Color(0.1f, 0.1f, 0.08f, 0.9f));
+            barFill = Solid(Color.white);
             Color txt = Geo.Hex(0xe8e4d0);
             panelText = Label(12, txt, false);
+            headText = Label(12, Geo.Hex(0xf0d060), false);
+            warnText = Label(12, Geo.Hex(0xe07840), false);
             nameTagStyle = Label(12, Color.white, true);
             floatStyle = Label(16, Geo.Marker, true);
             chatYou = Label(13, Geo.Hex(0xf0d060), false);
@@ -321,33 +471,267 @@ namespace Elderholt
         void OnGUI()
         {
             EnsureStyles();
+            guiRects.Clear();
+
             DrawHud();
+            DrawContextPanel();
+            if (bagOpen) DrawBag();
             DrawWorldLabels();
             DrawChat();
+
+            chatFocused = GUI.GetNameOfFocusedControl() == "chatInput";
+        }
+
+        Rect Panel(float x, float y, float w, float h)
+        {
+            Rect r = new Rect(x, y, w, h);
+            GUI.DrawTexture(r, panelBg);
+            guiRects.Add(r);
+            return r;
         }
 
         void DrawHud()
         {
             GameClient g = gameClient;
-            int youXp = 0, fennXp = 0;
-            if (g.Next.snap != null)
+            Snapshot s = Snap;
+            PlayerSnap me = Me();
+            BagSnap bag = MyBag();
+            int youXp = 0, youSm = 0, fennXp = 0;
+            if (s != null)
             {
-                g.Next.snap.xp.TryGetValue("you", out youXp);
-                g.Next.snap.xp.TryGetValue("fenn", out fennXp);
+                s.xp.TryGetValue("you", out youXp);
+                s.smithXp.TryGetValue("you", out youSm);
+                s.xp.TryGetValue("fenn", out fennXp);
             }
+            int band = me != null ? me.band : 0;
 
-            Rect box = new Rect(10, 10, 300, 132);
-            GUI.DrawTexture(box, panelBg);
+            Rect box = Panel(10, 10, 320, 172);
             GUILayout.BeginArea(new Rect(box.x + 10, box.y + 8, box.width - 20, box.height - 12));
-            GUILayout.Label("THORNMERE REACH   tick " + g.tick + "   rtt " + g.rtt + "ms", panelText);
-            GUILayout.Label("Mining  You  Lv " + XpCurve.Level(youXp) + "  (" + youXp.ToString("N0") + " xp)", panelText);
-            GUILayout.Label("        Fenn Lv " + XpCurve.Level(fennXp) + "  (" + fennXp.ToString("N0") + " xp)", panelText);
+            GUILayout.Label(Bands.All[band].name.ToUpperInvariant() + "   tick " + g.tick + "   rtt " + g.rtt + "ms", headText);
+            GUILayout.Label("Mining Lv " + XpCurve.Level(youXp) + " (" + youXp.ToString("N0") + ")   Smithing Lv " + XpCurve.Level(youSm) + " (" + youSm.ToString("N0") + ")", panelText);
+            GUILayout.Label("Fenn: Mining Lv " + XpCurve.Level(fennXp), panelText);
+            if (bag != null)
+                GUILayout.Label("gold " + bag.gold + "g   ·   " + Items.Pretty(bag.pickaxe) + "   ·   bag (B)", panelText);
+            if (band > 0 && s != null)
+            {
+                int inst = s.instability[band];
+                GUILayout.Label("the rock: " + Bands.Tell(inst) + "  [" + inst + "]", inst >= 40 ? warnText : panelText);
+                GUILayout.Label("T — shore with timber (" + BagCount(bag, Items.Timber) + " held)", panelText);
+            }
             GUILayout.Label("saved " + g.savedAt, panelText);
             GUILayout.Label(g.status, panelText);
             GUILayout.EndArea();
 
-            if (GUI.Button(new Rect(box.x, box.y + box.height + 6, 130, 24), "Restart server"))
-                Restart();
+            Rect btn = new Rect(box.x, box.y + box.height + 6, 130, 24);
+            guiRects.Add(btn);
+            if (GUI.Button(btn, "Restart server")) Restart();
+
+            DrawStrikeIndicator(me);
+        }
+
+        // The verb: rock hardness sets the rhythm; strike the weak point (Space)
+        // for clean ore. The indicator predicts where the armed strike lands.
+        void DrawStrikeIndicator(PlayerSnap me)
+        {
+            if (me == null || me.anim != "mine" || Snap == null || mineTargetId == null) return;
+            NodeSnap node = Snap.nodes.Find(n => n.id == mineTargetId);
+            if (node == null || node.ore <= 0) return;
+
+            long cur = Snap.tick;
+            // An armed strike lands on the next swing (~1 tick out); the server
+            // grants the weak tick itself and one tick of grace.
+            bool window = (cur + 1) % node.tempo == node.phase || (cur + 2) % node.tempo == node.phase;
+            int wait = 0;
+            if (!window)
+            {
+                long t = cur + 1;
+                while ((t + wait) % node.tempo != node.phase) wait++;
+            }
+
+            Rect r = Panel(Screen.width / 2f - 120, Screen.height - 120, 240, 34);
+            string msg = window ? "WEAK POINT — Space to strike!" : "listen for the crack…  " + wait;
+            GUI.Label(new Rect(r.x + 12, r.y + 8, r.width - 24, 20), msg, window ? headText : panelText);
+        }
+
+        static int BagCount(BagSnap bag, string item)
+        {
+            if (bag == null) return 0;
+            foreach (ItemStack it in bag.items) if (it.item == item) return it.qty;
+            return 0;
+        }
+
+        // Context panel: whatever camp station (or ladder) is in reach.
+        void DrawContextPanel()
+        {
+            PlayerSnap me = Me();
+            if (me == null) return;
+
+            if (MyForge() != null) { DrawForgePanel(); return; }
+
+            if (me.band == 0)
+            {
+                if (MeNear(ZoneServer.StallPos, ZoneServer.StationReach)) DrawStallPanel();
+                else if (MeNear(ZoneServer.FurnacePos, ZoneServer.StationReach)) DrawFurnacePanel();
+                else if (MeNear(ZoneServer.AnvilPos, ZoneServer.StationReach)) DrawAnvilPanel();
+                else if (MeNear(ZoneServer.BoardPos, ZoneServer.StationReach)) DrawBoardPanel();
+                else if (MeNear(ZoneServer.EntrancePos, ZoneServer.StationReach)) DrawLadderPanel(me, true, false);
+            }
+            else if (MeNear(new Vector2(Bands.All[me.band].originX, Bands.All[me.band].originZ), ZoneServer.StationReach + 2f))
+            {
+                DrawLadderPanel(me, me.band < Bands.Count - 1, true);
+            }
+        }
+
+        Rect ContextBox(int rows)
+        {
+            float h = 34 + rows * 26;
+            return Panel(Screen.width - 320, Screen.height - 60 - h, 300, h);
+        }
+
+        void DrawStallPanel()
+        {
+            BagSnap bag = MyBag();
+            Rect r = ContextBox(1 + Items.StallStock.Length);
+            GUI.Label(new Rect(r.x + 10, r.y + 6, r.width - 20, 20), "MARKET STALL — " + (bag != null ? bag.gold + "g" : ""), headText);
+            float y = r.y + 30;
+            if (GUI.Button(new Rect(r.x + 10, y, r.width - 20, 22), "Sell everything the keeper wants"))
+                SendToServer(Intent.Sell("ALL", 0));
+            y += 26;
+            foreach (string item in Items.StallStock)
+            {
+                if (GUI.Button(new Rect(r.x + 10, y, r.width - 20, 22), "Buy " + Items.Pretty(item) + " — " + Items.PriceToBuy(item) + "g"))
+                    SendToServer(Intent.Buy(item));
+                y += 26;
+            }
+        }
+
+        void DrawFurnacePanel()
+        {
+            Rect r = ContextBox(Recipes.Smelting.Length);
+            GUI.Label(new Rect(r.x + 10, r.y + 6, r.width - 20, 20), "FURNACE — smelt (grade carries into the bar)", headText);
+            float y = r.y + 30;
+            foreach (SmeltRecipe rec in Recipes.Smelting)
+            {
+                if (GUI.Button(new Rect(r.x + 10, y, r.width - 20, 22), rec.label))
+                    SendToServer(Intent.Smelt(rec.id));
+                y += 26;
+            }
+        }
+
+        void DrawAnvilPanel()
+        {
+            Rect r = ContextBox(Recipes.Forging.Length);
+            GUI.Label(new Rect(r.x + 10, r.y + 6, r.width - 20, 20), "ANVIL — forge (bar grade sets the ceiling)", headText);
+            float y = r.y + 30;
+            foreach (ForgeRecipe rec in Recipes.Forging)
+            {
+                if (GUI.Button(new Rect(r.x + 10, y, r.width - 20, 22), rec.label))
+                    SendToServer(Intent.Forge(rec.id));
+                y += 26;
+            }
+        }
+
+        // Live forge session: heat shown as colour (read the steel, not a gauge).
+        void DrawForgePanel()
+        {
+            ForgeSnap f = MyForge();
+            if (f == null) return;
+            Rect r = ContextBox(4);
+            GUI.Label(new Rect(r.x + 10, r.y + 6, r.width - 20, 20), "AT THE ANVIL — " + f.strikes + "/" + ZoneServer.ForgeStrikesNeeded + " strikes, " + f.flaws + " flaws", headText);
+
+            // Steel colour: black -> dull red -> orange -> yellow -> searing white.
+            float t = f.heat / 100f;
+            Color steel = t < 0.4f ? Color.Lerp(Geo.Hex(0x1a1210), Geo.Hex(0x7a2a18), t / 0.4f)
+                : t < 0.7f ? Color.Lerp(Geo.Hex(0x7a2a18), Geo.Hex(0xe8a030), (t - 0.4f) / 0.3f)
+                : t < 0.9f ? Color.Lerp(Geo.Hex(0xe8a030), Geo.Hex(0xf8e8a0), (t - 0.7f) / 0.2f)
+                : Color.Lerp(Geo.Hex(0xf8e8a0), Color.white, (t - 0.9f) / 0.1f);
+            GUI.DrawTexture(new Rect(r.x + 10, r.y + 30, r.width - 20, 18), barBg);
+            Color prev = GUI.color;
+            GUI.color = steel;
+            GUI.DrawTexture(new Rect(r.x + 12, r.y + 32, (r.width - 24) * Mathf.Clamp01(t), 14), barFill);
+            GUI.color = prev;
+
+            float y = r.y + 54;
+            if (f.awaitingQuench)
+            {
+                GUI.Label(new Rect(r.x + 10, y, r.width - 20, 20), "IT'S DONE — QUENCH NOW (Q)!", warnText);
+                y += 26;
+                if (GUI.Button(new Rect(r.x + 10, y, r.width - 20, 22), "Quench (Q)"))
+                    SendToServer(Intent.Quench());
+            }
+            else
+            {
+                if (GUI.Button(new Rect(r.x + 10, y, (r.width - 30) / 2f, 22), "Pump (W)"))
+                    SendToServer(Intent.Pump());
+                if (GUI.Button(new Rect(r.x + 20 + (r.width - 30) / 2f, y, (r.width - 30) / 2f, 22), "Hammer (Space)"))
+                    SendToServer(Intent.Hammer());
+                y += 26;
+                GUI.Label(new Rect(r.x + 10, y, r.width - 20, 20), "hammer in the orange; white burns the billet", panelText);
+            }
+        }
+
+        void DrawBoardPanel()
+        {
+            Snapshot s = Snap;
+            ContractSnap c = s != null && s.contracts.TryGetValue("you", out ContractSnap cc) ? cc : null;
+            Rect r = ContextBox(c == null ? 1 : 3);
+            GUI.Label(new Rect(r.x + 10, r.y + 6, r.width - 20, 20), "NOTICE BOARD — caravan orders", headText);
+            float y = r.y + 30;
+            if (c == null)
+            {
+                GUI.Label(new Rect(r.x + 10, y, r.width - 20, 20), "no orders posted — the caravan rolls in soon", panelText);
+                return;
+            }
+            long left = c.deadline - (s != null ? s.tick : 0);
+            GUI.Label(new Rect(r.x + 10, y, r.width - 20, 20), c.qty + "× " + Items.Pretty(c.item) + " — " + c.gold + "g  (" + left + " ticks)", panelText);
+            y += 26;
+            if (!c.accepted)
+            {
+                if (GUI.Button(new Rect(r.x + 10, y, r.width - 20, 22), "Sign the contract"))
+                    SendToServer(Intent.AcceptContract());
+            }
+            else if (GUI.Button(new Rect(r.x + 10, y, r.width - 20, 22), "Deliver the order"))
+            {
+                SendToServer(Intent.DeliverContract());
+            }
+        }
+
+        void DrawLadderPanel(PlayerSnap me, bool canDown, bool canUp)
+        {
+            int rows = (canDown ? 1 : 0) + (canUp ? 1 : 0);
+            if (rows == 0) return;
+            Rect r = ContextBox(rows);
+            GUI.Label(new Rect(r.x + 10, r.y + 6, r.width - 20, 20), me.band == 0 ? "MINE ENTRANCE" : "THE SHAFT — " + Bands.All[me.band].name, headText);
+            float y = r.y + 30;
+            if (canDown)
+            {
+                string below = Bands.All[me.band + 1].name;
+                if (GUI.Button(new Rect(r.x + 10, y, r.width - 20, 22), "Descend to " + below + " (E)"))
+                    SendToServer(Intent.Descend());
+                y += 26;
+            }
+            if (canUp && GUI.Button(new Rect(r.x + 10, y, r.width - 20, 22), "Climb up (R)"))
+                SendToServer(Intent.Ascend());
+        }
+
+        void DrawBag()
+        {
+            BagSnap bag = MyBag();
+            int rows = bag != null ? Mathf.Max(1, bag.items.Count) : 1;
+            float h = 40 + rows * 18;
+            Rect r = Panel(Screen.width - 250, 10, 240, h);
+            GUI.Label(new Rect(r.x + 10, r.y + 6, r.width - 20, 20), "BAG — " + (bag != null ? bag.gold + "g" : ""), headText);
+            float y = r.y + 28;
+            if (bag == null || bag.items.Count == 0)
+            {
+                GUI.Label(new Rect(r.x + 10, y, r.width - 20, 18), "empty — the rocks await", panelText);
+                return;
+            }
+            foreach (ItemStack it in bag.items)
+            {
+                GUI.Label(new Rect(r.x + 10, y, r.width - 20, 18), it.qty + "× " + Items.Pretty(it.item), panelText);
+                y += 18;
+            }
         }
 
         void DrawWorldLabels()
@@ -362,6 +746,15 @@ namespace Elderholt
                 GUI.color = new Color(1, 1, 1, Mathf.Clamp01(f.life / 1.2f));
                 DrawWorldLabel(f.pos, f.text, floatStyle);
                 GUI.color = prev;
+            }
+
+            // Prospect notes float over their rocks while known.
+            GameClient g = gameClient;
+            foreach (KeyValuePair<string, string> kv in g.ProspectNotes)
+            {
+                if (!world.RockGroups.TryGetValue(kv.Key, out GameObject rock) || !rock.activeSelf) continue;
+                Vector3 p = rock.transform.position;
+                DrawWorldLabel(new Vector3(p.x, 2.0f, p.z), kv.Value, panelText);
             }
         }
 
@@ -383,7 +776,9 @@ namespace Elderholt
 
             Event e = Event.current;
             GUI.SetNextControlName("chatInput");
-            chatDraft = GUI.TextField(new Rect(12, Screen.height - 30, 320, 22), chatDraft, 120);
+            Rect input = new Rect(12, Screen.height - 30, 320, 22);
+            guiRects.Add(input);
+            chatDraft = GUI.TextField(input, chatDraft, 120);
             if (e.type == UnityEngine.EventType.KeyDown && (e.keyCode == KeyCode.Return || e.keyCode == KeyCode.KeypadEnter))
             {
                 string t = chatDraft.Trim();
@@ -397,7 +792,7 @@ namespace Elderholt
             server.Save();
             server = new ZoneServer();
             ConnectClients();
-            gameClient.status = "Server restarted — characters, XP and rocks reloaded.";
+            gameClient.status = "Server restarted — characters, bags, gold and rocks reloaded.";
         }
 
         void OnApplicationQuit()

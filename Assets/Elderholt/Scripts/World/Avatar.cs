@@ -64,6 +64,19 @@ namespace Elderholt
                 armRX = Mathf.Sin(bob) * 0.9f - 0.5f;
                 legLX *= 0.8f; legRX *= 0.8f; armLX *= 0.8f;
             }
+            else if (anim == "wedge")
+            {
+                // Braced low, both arms forward on the wedge.
+                armLX = -1.1f; armRX = -1.1f;
+                legLX *= 0.8f; legRX *= 0.8f;
+            }
+            else if (anim == "smith")
+            {
+                // Quick hammer taps with the right arm.
+                bob += dt * 14f;
+                armRX = Mathf.Sin(bob) * 0.7f - 0.7f;
+                legLX *= 0.8f; legRX *= 0.8f; armLX *= 0.8f;
+            }
             else
             {
                 legLX *= 0.8f; legRX *= 0.8f; armLX *= 0.8f; armRX *= 0.8f;

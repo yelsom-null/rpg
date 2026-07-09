@@ -16,3 +16,9 @@ Unity project scaffold with [MCP for Unity](https://github.com/CoplayDev/unity-m
 4. Try a prompt like *"Create a red cube at the origin and add a Rigidbody."*
 
 See the [MCP for Unity docs](https://coplaydev.github.io/unity-mcp/) for troubleshooting and advanced configuration (multi-instance routing, tool groups, remote server auth).
+
+## The game: Elderholt — Phase 1
+
+`Assets/Elderholt/` contains a Unity adaptation of the **Elderholt** Phase 1 vertical slice (a RuneScape-inspired browser MMO design): an authoritative 600 ms tick server, persistent characters, one zone (Thornmere Reach), zone chat, and a shared mining rock — with a second in-process client (the bot **Fenn**) so shared-rock arbitration is demonstrable in a single Play session.
+
+Just press **Play** — it auto-boots, no scene setup needed. See [`Assets/Elderholt/README.md`](Assets/Elderholt/README.md) for controls, the design-to-code mapping, and the persistence exit test.

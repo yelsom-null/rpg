@@ -208,7 +208,10 @@ namespace Elderholt
                 counter.transform.localPosition = new Vector3(0, 0.55f, 0);
             }
             TryModel("KayKit/Props/coin_stack_medium", post2, new Vector3(0.5f, 0.85f, 0), 1.2f, -1f);
+            TryModel("KayKit/Resource/Gold_Bars_Stack_Small", post2, new Vector3(-0.6f, 0.85f, 0), 1.1f, -1f);
             TryModel("KayKit/Props/barrel_large", post2, new Vector3(-1.8f, 0, 0.7f), 1.3f, -1f);
+            TryModel("KayKit/Resource/Wood_Log_Stack", post2, new Vector3(1.9f, 0, 0.8f), 1.2f, -1f);
+            TryModel("KayKit/Resource/Textiles_A", post2, new Vector3(1.2f, 0, -1.1f), 1.2f, -1f);
             Signs.Add(new KeyValuePair<string, Vector3>("MARKET SQUARE", new Vector3(ZoneServer.StallPos.x, 3.1f, ZoneServer.StallPos.y)));
         }
 
@@ -337,6 +340,10 @@ namespace Elderholt
 
             TryModel("KayKit/Props/keg", row, new Vector3(-2.6f, 0, 1.0f), 1.3f, -1f);
             TryModel("KayKit/Props/box_small", row, new Vector3(2.6f, 0, 1.1f), 1.3f, -1f);
+            // Work-in-progress stock: bars by the anvil, coal by the furnace mouth.
+            TryModel("KayKit/Resource/Iron_Bars_Stack_Small", row, new Vector3(2.4f, 0, -1.2f), 1.2f, -1f);
+            TryModel("KayKit/Resource/Copper_Bars_Stack_Small", row, new Vector3(-0.6f, 0, 1.2f), 1.2f, -1f);
+            TryModel("KayKit/Resource/Stone_Chunks_Small", row, new Vector3(-1.9f, 0, -1.2f), 1.3f, -1f);
         }
 
         // Clan Quarter hall plots and Warehouse Row bulk lots (east side) —
@@ -399,6 +406,8 @@ namespace Elderholt
                 GameObject crown = Geo.MeshObject("Crown", Geo.Icosahedron(1.6f * s), Geo.BirchCrown, grp);
                 crown.transform.localPosition = new Vector3(0, 2.6f + s, 0);
             }
+            TryModel("KayKit/Resource/Wood_Log_B", root, new Vector3(-6f, 0, 23f), 1.4f, -1f);
+            TryModel("KayKit/Resource/Wood_Log_Stack", root, new Vector3(2f, 0, 25f), 1.3f, -1f);
             Signs.Add(new KeyValuePair<string, Vector3>("BRACKEN GROVE — logging · foraging (soon)", new Vector3(-2f, 3.4f, 24f)));
         }
 
@@ -451,6 +460,11 @@ namespace Elderholt
             TryModel("KayKit/Props/torch_lit", ent, new Vector3(1.6f, 0, -0.4f), 1.4f, -1f);
             TryModel("KayKit/Props/barrel_large", ent, new Vector3(-1.9f, 0, -0.6f), 1.3f, -1f);
             ent.rotation = Quaternion.Euler(0, 90f, 0);   // mouth faces the quarry floor (west)
+
+            // Quarry-floor spoil: hewn stone waiting on the caravan.
+            TryModel("KayKit/Resource/Stone_Chunks_Large", q, new Vector3(-3.5f, 0, 4f), 1.6f, -1f);
+            TryModel("KayKit/Resource/Stone_Bricks_Stack_Medium", q, new Vector3(2f, 0, 5f), 1.4f, -1f);
+            TryModel("KayKit/Resource/Wood_Log_A", q, new Vector3(-4f, 0, -3f), 1.4f, -1f);
         }
 
         void BuildCaravanField()
@@ -468,6 +482,8 @@ namespace Elderholt
             TryModel("KayKit/Props/crates_stacked", f, new Vector3(-3f, 0, -0.5f), 1.4f, -1f);
             TryModel("KayKit/Props/barrel_large", f, new Vector3(2.5f, 0, -1f), 1.4f, -1f);
             TryModel("KayKit/Props/box_small", f, new Vector3(0.4f, 0, 0.6f), 1.3f, -1f);
+            TryModel("KayKit/Resource/Wood_Planks_Stack_Medium", f, new Vector3(-1.2f, 0, -1.4f), 1.4f, -1f);
+            TryModel("KayKit/Resource/Textiles_Stack_Large", f, new Vector3(4.4f, 0, 0.4f), 1.3f, -1f);
             Signs.Add(new KeyValuePair<string, Vector3>("CARAVAN FIELD — runs depart south (soon)", new Vector3(0, 2.8f, -24f)));
         }
 
@@ -605,13 +621,25 @@ namespace Elderholt
                     rock.transform.localRotation = Quaternion.Euler(0, Random.value * 180f, 0);
                 }
 
-                Color glintCol = n.metal == "tin" ? Geo.GlintTin : n.metal == "iron" ? Geo.GlintIron : Geo.Glint;
-                GameObject glint = Geo.MeshObject("Glint", Geo.Icosahedron(0.22f), glintCol, grp);
-                glint.transform.localPosition = new Vector3(0.4f, 0.85f, 0.3f);
+                // The exposed vein: a metal nugget from Resource Bits (tin reads
+                // as silver), or the old glint icosahedron as fallback.
+                string nugget = n.metal == "tin" ? "KayKit/Resource/Silver_Nugget_Medium"
+                    : n.metal == "iron" ? "KayKit/Resource/Iron_Nugget_Medium"
+                    : "KayKit/Resource/Copper_Nugget_Medium";
+                if (TryModel(nugget, grp, new Vector3(0.4f, 0.8f, 0.3f), 1.2f, -1f) == null)
+                {
+                    Color glintCol = n.metal == "tin" ? Geo.GlintTin : n.metal == "iron" ? Geo.GlintIron : Geo.Glint;
+                    GameObject glint = Geo.MeshObject("Glint", Geo.Icosahedron(0.22f), glintCol, grp);
+                    glint.transform.localPosition = new Vector3(0.4f, 0.85f, 0.3f);
+                }
 
-                // Seam hint: a bright marker shown when the seam runs to this rock.
-                GameObject seam = Geo.MeshObject("Seam", Geo.Icosahedron(0.3f), Geo.Marker, grp);
-                seam.transform.localPosition = new Vector3(-0.3f, 1.15f, -0.2f);
+                // Seam hint: gold glitter shown when the seam runs to this rock.
+                GameObject seam = TryModel("KayKit/Resource/Gold_Nugget_Small", grp, new Vector3(-0.3f, 1.1f, -0.2f), 1.5f, -1f);
+                if (seam == null)
+                {
+                    seam = Geo.MeshObject("Seam", Geo.Icosahedron(0.3f), Geo.Marker, grp);
+                    seam.transform.localPosition = new Vector3(-0.3f, 1.15f, -0.2f);
+                }
                 seam.SetActive(false);
                 SeamGlints[n.id] = seam;
 

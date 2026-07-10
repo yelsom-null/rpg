@@ -128,11 +128,15 @@ namespace Elderholt
                 grp.SetParent(root, false);
                 grp.localPosition = new Vector3(spots[i, 0], 0, spots[i, 1]);
 
+                // KayKit tree if bundled, procedural birch otherwise.
+                float s = 0.7f + Random.value * 0.5f;
+                string treePath = i % 2 == 0 ? "KayKit/Nature/tree_single_A" : "KayKit/Nature/tree_single_B";
+                if (TryModel(treePath, grp, Vector3.zero, 2.6f * s, -1f) != null) continue;
+
                 GameObject trunk = Geo.Primitive(PrimitiveType.Cylinder, Geo.BirchTrunk, grp);
                 trunk.transform.localScale = new Vector3(0.44f, 1.2f, 0.44f); // ~r0.22, h2.4
                 trunk.transform.localPosition = new Vector3(0, 1.2f, 0);
 
-                float s = 0.7f + Random.value * 0.5f;
                 GameObject crown = Geo.MeshObject("Crown", Geo.Icosahedron(1.6f * s), Geo.BirchCrown, grp);
                 crown.transform.localPosition = new Vector3(0, 2.6f + s, 0);
             }
@@ -159,9 +163,21 @@ namespace Elderholt
             canopy.transform.localScale = new Vector3(2.8f, 0.1f, 2.2f);
             canopy.transform.localPosition = new Vector3(0, 2.1f, 0);
             canopy.transform.localRotation = Quaternion.Euler(8f, 0, 0);
-            GameObject counter = Geo.Primitive(PrimitiveType.Cube, Geo.Timber, stall);
-            counter.transform.localScale = new Vector3(2.4f, 0.5f, 0.6f);
-            counter.transform.localPosition = new Vector3(0, 0.55f, -0.9f);
+            if (TryModel("KayKit/Props/table_long", stall, new Vector3(0, 0, -0.9f), 1.6f, 0f) == null)
+            {
+                GameObject counter = Geo.Primitive(PrimitiveType.Cube, Geo.Timber, stall);
+                counter.transform.localScale = new Vector3(2.4f, 0.5f, 0.6f);
+                counter.transform.localPosition = new Vector3(0, 0.55f, -0.9f);
+            }
+            TryModel("KayKit/Props/coin_stack_medium", stall, new Vector3(0.5f, 0.85f, -0.9f), 1.2f, -1f);
+
+            // Camp clutter around the stall (visual only; silently skipped if the
+            // model pack isn't present).
+            TryModel("KayKit/Props/barrel_large", stall, new Vector3(-2.2f, 0, 0.6f), 1.4f, -1f);
+            TryModel("KayKit/Props/crates_stacked", stall, new Vector3(2.4f, 0, 0.8f), 1.4f, -1f);
+            TryModel("KayKit/Props/box_small", stall, new Vector3(1.8f, 0, -1.6f), 1.3f, -1f);
+            TryModel("KayKit/Props/keg", stall, new Vector3(-1.8f, 0, -1.5f), 1.3f, -1f);
+            TryModel("KayKit/Props/chest", stall, new Vector3(-2.6f, 0, -0.4f), 1.3f, 40f);
 
             // Furnace: stone block, chimney, ember mouth.
             Transform furnace = Station("Furnace", "furnace", ZoneServer.FurnacePos, 1.6f);
@@ -220,6 +236,8 @@ namespace Elderholt
                 jamb.transform.localScale = new Vector3(0.3f, 2.3f, 0.6f);
                 jamb.transform.localPosition = new Vector3(i == 0 ? -1.05f : 1.05f, 1.15f, 0.2f);
             }
+            TryModel("KayKit/Props/torch_lit", ent, new Vector3(1.6f, 0, -0.4f), 1.4f, -1f);
+            TryModel("KayKit/Props/barrel_large", ent, new Vector3(-1.9f, 0, -0.6f), 1.3f, -1f);
             ent.rotation = Quaternion.Euler(0, -35f, 0);
         }
 
@@ -247,9 +265,19 @@ namespace Elderholt
                 {
                     float a = (float)i / walls * Mathf.PI * 2f;
                     float r = def.radius + 2.4f;
+                    Vector3 at = new Vector3(Mathf.Cos(a) * r, 0f, Mathf.Sin(a) * r);
+                    string wallPath = i % 2 == 0 ? "KayKit/Nature/rock_single_A" : "KayKit/Nature/rock_single_B";
+                    if (TryModel(wallPath, grp, at, 4.5f + Random.value * 2f, -1f) != null) continue;
                     GameObject wall = Geo.MeshObject("Wall", Geo.Icosahedron(2.6f + Random.value * 1.4f), Geo.ChamberWall, grp);
-                    wall.transform.localPosition = new Vector3(Mathf.Cos(a) * r, 1.2f, Mathf.Sin(a) * r);
+                    wall.transform.localPosition = at + Vector3.up * 1.2f;
                     wall.transform.localRotation = Quaternion.Euler(Random.value * 40f, Random.value * 180f, Random.value * 40f);
+                }
+
+                // Torches by the shaft so the gallery reads in the gloom.
+                for (int i = 0; i < 3; i++)
+                {
+                    float a = i * 2.1f + 0.5f;
+                    TryModel("KayKit/Props/torch_lit", grp, new Vector3(Mathf.Cos(a) * (def.radius * 0.55f), 0, Mathf.Sin(a) * (def.radius * 0.55f)), 1.4f, -1f);
                 }
 
                 // The shaft ladder at the chamber's heart: pole + rungs.
@@ -271,9 +299,11 @@ namespace Elderholt
                 for (int i = 0; i < 3; i++)
                 {
                     float a = (0.7f + i * 2.1f);
+                    Vector3 at = new Vector3(Mathf.Cos(a) * (def.radius + 0.8f), 0f, Mathf.Sin(a) * (def.radius + 0.8f));
+                    if (TryModel("KayKit/Props/pillar", grp, at, 1.5f, -1f) != null) continue;
                     GameObject prop = Geo.Primitive(PrimitiveType.Cube, Geo.Timber, grp);
                     prop.transform.localScale = new Vector3(0.18f, 3.0f, 0.18f);
-                    prop.transform.localPosition = new Vector3(Mathf.Cos(a) * (def.radius + 0.8f), 1.4f, Mathf.Sin(a) * (def.radius + 0.8f));
+                    prop.transform.localPosition = at + Vector3.up * 1.4f;
                     prop.transform.localRotation = Quaternion.Euler(0, 0, 8f);
                 }
 
@@ -286,6 +316,20 @@ namespace Elderholt
                 lamp.range = def.radius * 2.6f;
                 lamp.intensity = b == 1 ? 0.9f : 0.6f;
             }
+        }
+
+        // Instantiate a bundled KayKit model (CC0) from Resources; returns null if
+        // missing so every call site keeps its procedural fallback.
+        static GameObject TryModel(string path, Transform parent, Vector3 localPos, float scale, float yawDeg)
+        {
+            GameObject prefab = Resources.Load<GameObject>(path);
+            if (prefab == null) return null;
+            GameObject go = Object.Instantiate(prefab, parent);
+            go.name = path;
+            go.transform.localPosition = localPos;
+            go.transform.localScale = Vector3.one * scale;
+            go.transform.localRotation = Quaternion.Euler(0, yawDeg < 0f ? Random.value * 360f : yawDeg, 0);
+            return go;
         }
 
         Transform Station(string name, string kind, Vector2 pos, float clickRadius)
@@ -308,10 +352,17 @@ namespace Elderholt
                 grp.SetParent(root, false);
                 grp.localPosition = new Vector3(n.x, 0, n.z);
 
-                GameObject rock = Geo.MeshObject("Rock", Geo.Icosahedron(1.0f), Geo.Rock, grp);
-                rock.transform.localScale = new Vector3(1f, 0.7f, 1f);
-                rock.transform.localPosition = new Vector3(0, 0.5f, 0);
-                rock.transform.localRotation = Quaternion.Euler(0, Random.value * 180f, 0);
+                // KayKit boulder (per metal, for variety) or the procedural rock.
+                string rockPath = n.metal == "tin" ? "KayKit/Nature/rock_single_D"
+                    : n.metal == "iron" ? "KayKit/Nature/rock_single_E"
+                    : "KayKit/Nature/rock_single_C";
+                if (TryModel(rockPath, grp, Vector3.zero, 2.2f, -1f) == null)
+                {
+                    GameObject rock = Geo.MeshObject("Rock", Geo.Icosahedron(1.0f), Geo.Rock, grp);
+                    rock.transform.localScale = new Vector3(1f, 0.7f, 1f);
+                    rock.transform.localPosition = new Vector3(0, 0.5f, 0);
+                    rock.transform.localRotation = Quaternion.Euler(0, Random.value * 180f, 0);
+                }
 
                 Color glintCol = n.metal == "tin" ? Geo.GlintTin : n.metal == "iron" ? Geo.GlintIron : Geo.Glint;
                 GameObject glint = Geo.MeshObject("Glint", Geo.Icosahedron(0.22f), glintCol, grp);

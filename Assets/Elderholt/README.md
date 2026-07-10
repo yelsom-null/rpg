@@ -97,9 +97,12 @@ architecture honest: an authoritative "server" the clients never mutate, driven 
   server-side forgiveness, scaled to the tick model).
 - **Instability is read, not shown** — the HUD gives the tunnel's tells ("the
   timbers creak overhead"), with the raw number only as a debug bracket.
-- **Visuals are low-fidelity by design** — flat-shaded low-poly, procedurally
-  built, no imported art. Depth bands are chambers at world offsets with their own
-  fog/lighting. Recreate the feel, not the vertices.
+- **Visuals are low-fidelity by design** — flat-shaded low-poly. Terrain, water,
+  avatars and stations are procedural; trees, boulders/ore rocks and camp props
+  use bundled **KayKit** CC0 models (`Resources/KayKit/`, see
+  `ThirdParty/ATTRIBUTION.md`), each with a procedural fallback if missing.
+  Depth bands are chambers at world offsets with their own fog/lighting.
+  Recreate the feel, not the vertices.
 - **UI** is IMGUI (`OnGUI`) so the slice runs with zero asset setup.
 
 ## File layout

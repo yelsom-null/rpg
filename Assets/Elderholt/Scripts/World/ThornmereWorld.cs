@@ -575,11 +575,12 @@ namespace Elderholt
             }
         }
 
-        // Instantiate a bundled KayKit model (CC0) from Resources; returns null if
-        // missing so every call site keeps its procedural fallback.
+        // Instantiate a model for `path`: an Inspector-assigned override on the
+        // ElderholtAssets set if present, else the bundled KayKit model. Returns
+        // null if neither exists, so every call site keeps its procedural fallback.
         static GameObject TryModel(string path, Transform parent, Vector3 localPos, float scale, float yawDeg)
         {
-            GameObject prefab = Resources.Load<GameObject>(path);
+            GameObject prefab = AssetLibrary.Resolve(path);
             if (prefab == null) return null;
             GameObject go = Object.Instantiate(prefab, parent);
             go.name = path;

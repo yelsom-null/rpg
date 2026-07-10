@@ -126,6 +126,26 @@ A*-pathing every step; the client renders continuous motion on top):
   `ThirdParty/ATTRIBUTION.md`), each with a procedural fallback if missing.
   Depth bands are chambers at world offsets with their own fog/lighting.
   Recreate the feel, not the vertices.
+
+## Using your own assets (Unity editor)
+
+Every model the world spawns can be replaced with **your own prefab** from the
+Unity editor — no code, no file renaming:
+
+1. In the Project window, right-click inside `Assets/Elderholt/Resources` →
+   **Create → Elderholt → Asset Set**. Keep the default name **`ElderholtAssets`**
+   and make sure it stays inside a **`Resources`** folder.
+2. Select it. Drag your prefabs/models onto the labelled slots (Tree, Ore Rock
+   Copper/Tin/Iron, Boulder, Barrel, Crate, Torch, …). Anything a named slot
+   doesn't cover, add under **Extra Overrides** keyed by the model's path
+   (e.g. `KayKit/Props/keg`) or just its name (`keg`).
+3. Press Play. Your assets appear wherever the defaults used to; empty slots keep
+   the bundled KayKit model, and a missing model still falls back to procedural
+   geometry — so partial sets are fine and nothing breaks.
+
+(New to imported models looking grey/untextured? Select the `.fbx`, open the
+**Materials** tab in the Inspector, and **Extract Textures / Extract Materials** —
+FBX packs import geometry first and need the texture atlas pointed at once.)
 - **UI** is IMGUI (`OnGUI`) so the slice runs with zero asset setup.
 
 ## File layout

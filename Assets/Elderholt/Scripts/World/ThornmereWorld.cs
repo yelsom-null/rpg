@@ -154,6 +154,7 @@ namespace Elderholt
             lintel.transform.localScale = new Vector3(5.8f, 0.4f, 1.0f);
             lintel.transform.localPosition = at + Vector3.up * 3.3f;
             TryModel("KayKit/Props/torch_lit", parent, at + new Vector3(-2.9f, 0, 0.8f), 1.3f, -1f);
+            TryModel("Village/Lantern", parent, at + new Vector3(2.9f, 0, 0.8f), 1f, -1f);
             Signs.Add(new KeyValuePair<string, Vector3>(label, at + Vector3.up * 4.1f));
         }
 
@@ -186,17 +187,21 @@ namespace Elderholt
                 Transform st = new GameObject("DayStall").transform;
                 st.SetParent(sq, false);
                 st.localPosition = new Vector3(sx, 0, sz);
-                for (int p = 0; p < 4; p++)
+                // A finished village stall if assigned, else procedural posts+canopy.
+                if (TryModel("Village/Stall", st, Vector3.zero, 1f, sz > 0 ? 180f : 0f) == null)
                 {
-                    GameObject post = Geo.Primitive(PrimitiveType.Cube, Geo.Timber, st);
-                    post.transform.localScale = new Vector3(0.1f, 1.6f, 0.1f);
-                    post.transform.localPosition = new Vector3(p % 2 == 0 ? -0.8f : 0.8f, 0.8f, p < 2 ? -0.6f : 0.6f);
+                    for (int p = 0; p < 4; p++)
+                    {
+                        GameObject post = Geo.Primitive(PrimitiveType.Cube, Geo.Timber, st);
+                        post.transform.localScale = new Vector3(0.1f, 1.6f, 0.1f);
+                        post.transform.localPosition = new Vector3(p % 2 == 0 ? -0.8f : 0.8f, 0.8f, p < 2 ? -0.6f : 0.6f);
+                    }
+                    GameObject canopy = Geo.Primitive(PrimitiveType.Cube, canopies[i % canopies.Length], st);
+                    canopy.transform.localScale = new Vector3(2.0f, 0.08f, 1.6f);
+                    canopy.transform.localPosition = new Vector3(0, 1.7f, 0);
+                    canopy.transform.localRotation = Quaternion.Euler(6f, 0, 0);
+                    if (i % 3 == 0) TryModel("KayKit/Props/box_small", st, new Vector3(0.3f, 0, 0), 1.2f, -1f);
                 }
-                GameObject canopy = Geo.Primitive(PrimitiveType.Cube, canopies[i % canopies.Length], st);
-                canopy.transform.localScale = new Vector3(2.0f, 0.08f, 1.6f);
-                canopy.transform.localPosition = new Vector3(0, 1.7f, 0);
-                canopy.transform.localRotation = Quaternion.Euler(6f, 0, 0);
-                if (i % 3 == 0) TryModel("KayKit/Props/box_small", st, new Vector3(0.3f, 0, 0), 1.2f, -1f);
             }
 
             // The trade post at centre: the clickable stall station.
@@ -212,6 +217,11 @@ namespace Elderholt
             TryModel("KayKit/Props/barrel_large", post2, new Vector3(-1.8f, 0, 0.7f), 1.3f, -1f);
             TryModel("KayKit/Resource/Wood_Log_Stack", post2, new Vector3(1.9f, 0, 0.8f), 1.2f, -1f);
             TryModel("KayKit/Resource/Textiles_A", post2, new Vector3(1.2f, 0, -1.1f), 1.2f, -1f);
+
+            // Optional village dressing (inert until you assign the slots).
+            TryModel("Village/Well", sq, new Vector3(4.3f, 0, 0f), 1f, -1f);
+            TryModel("Village/Lantern", sq, new Vector3(-4.3f, 0, 2.6f), 1f, -1f);
+            TryModel("Village/Lantern", sq, new Vector3(-4.3f, 0, -2.6f), 1f, -1f);
             Signs.Add(new KeyValuePair<string, Vector3>("MARKET SQUARE", new Vector3(ZoneServer.StallPos.x, 3.1f, ZoneServer.StallPos.y)));
         }
 
@@ -271,7 +281,9 @@ namespace Elderholt
                     Transform shop = new GameObject("Shop_" + i).transform;
                     shop.SetParent(city, false);
                     shop.localPosition = at;
-                    Building(shop, new Vector3(2.2f, 2.0f, 2.0f), Geo.Hex(0xe2d4ae));
+                    // A finished village house if one's assigned, else the block.
+                    if (TryModel("Village/House", shop, Vector3.zero, 1f, 90f) == null)
+                        Building(shop, new Vector3(2.2f, 2.0f, 2.0f), Geo.Hex(0xe2d4ae));
                     TryModel("KayKit/Props/crates_stacked", shop, new Vector3(1.5f, 0, 0), 1.1f, -1f);
                 }
                 else
@@ -484,6 +496,11 @@ namespace Elderholt
             TryModel("KayKit/Props/box_small", f, new Vector3(0.4f, 0, 0.6f), 1.3f, -1f);
             TryModel("KayKit/Resource/Wood_Planks_Stack_Medium", f, new Vector3(-1.2f, 0, -1.4f), 1.4f, -1f);
             TryModel("KayKit/Resource/Textiles_Stack_Large", f, new Vector3(4.4f, 0, 0.4f), 1.3f, -1f);
+
+            // Optional village dressing: a wagon and a fence line along the paddock.
+            TryModel("Village/Cart", f, new Vector3(1.5f, 0, -2.6f), 1f, 20f);
+            for (int i = 0; i < 5; i++)
+                TryModel("Village/Fence", f, new Vector3(-6f + i * 3f, 0, 3.4f), 1f, 90f);
             Signs.Add(new KeyValuePair<string, Vector3>("CARAVAN FIELD — runs depart south (soon)", new Vector3(0, 2.8f, -24f)));
         }
 

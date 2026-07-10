@@ -143,6 +143,25 @@ Unity editor — no code, no file renaming:
    the bundled KayKit model, and a missing model still falls back to procedural
    geometry — so partial sets are fine and nothing breaks.
 
+### Big local-only packs (e.g. Quaternius Medieval Village MegaKit)
+
+Large third-party packs (Asset Store, or a big itch.io kit) shouldn't go in the
+shared repo — clones stay small and you avoid the file-size limits. Import them
+**per-machine** and keep them out of git:
+
+1. Download the pack and use its **FBX** files (Unity imports FBX natively; glTF
+   needs the extra *glTFast* package, so prefer FBX where the pack offers it).
+2. Drop the unzipped folder into **`Assets/ThirdPartyLocal/`** — that path is
+   gitignored, so it stays local to your machine.
+3. On the `ElderholtAssets` set, the **Medieval village** slots hook a few pieces
+   straight into Bracken Cross: **House** (the two built High Street lots),
+   **Market Stall** (replaces the procedural day stalls), **Well** (Market Square
+   centrepiece), **Cart** + **Fence** (Caravan Field), **Lantern** (gates &
+   square). Anything else goes in **Extra Overrides** by path/name as above.
+4. Modular kits (walls/roofs you assemble into houses) are best hand-placed in a
+   scene rather than dropped in one piece at a time — ask and I'll set up a scene
+   + placement helper that keeps the procedural world underneath.
+
 (New to imported models looking grey/untextured? Select the `.fbx`, open the
 **Materials** tab in the Inspector, and **Extract Textures / Extract Materials** —
 FBX packs import geometry first and need the texture atlas pointed at once.)

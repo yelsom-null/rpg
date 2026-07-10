@@ -45,6 +45,20 @@ namespace Elderholt
         public GameObject table;
         public GameObject pillar;
 
+        [Header("Medieval village (e.g. Quaternius MegaKit, local import)")]
+        [Tooltip("A finished house model — placed on the two built High Street lots.")]
+        public GameObject house;
+        [Tooltip("A finished market-stall model — replaces the procedural day stalls.")]
+        public GameObject marketStall;
+        [Tooltip("A well — placed as the Market Square centrepiece if assigned.")]
+        public GameObject well;
+        [Tooltip("A cart/wagon — placed in the Caravan Field.")]
+        public GameObject cart;
+        [Tooltip("A lantern/lamp post — placed at the gates and around the square.")]
+        public GameObject lantern;
+        [Tooltip("A fence section — lines the Caravan Field paddock if assigned.")]
+        public GameObject fence;
+
         [System.Serializable]
         public class Override
         {
@@ -84,6 +98,12 @@ namespace Elderholt
                 MapSlot(torch, "KayKit/Props/torch_lit");
                 MapSlot(table, "KayKit/Props/table_long");
                 MapSlot(pillar, "KayKit/Props/pillar");
+                MapSlot(house, "Village/House");
+                MapSlot(marketStall, "Village/Stall");
+                MapSlot(well, "Village/Well");
+                MapSlot(cart, "Village/Cart");
+                MapSlot(lantern, "Village/Lantern");
+                MapSlot(fence, "Village/Fence");
 
                 foreach (Override o in extraOverrides)
                     if (o != null && o.prefab != null && !string.IsNullOrEmpty(o.key))

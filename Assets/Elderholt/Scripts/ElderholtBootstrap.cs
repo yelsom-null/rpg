@@ -52,7 +52,7 @@ namespace Elderholt
 
         readonly Dictionary<string, Vector2> shown = new Dictionary<string, Vector2>
         {
-            { "you", new Vector2(2, 4) }, { "fenn", new Vector2(-5, 8) },
+            { "you", new Vector2(0, 2) }, { "fenn", new Vector2(-3, 4) },
         };
 
         class Sched { public double due; public Action a; }
@@ -408,6 +408,8 @@ namespace Elderholt
                 ShowMarker(sp);
                 gameClient.status = station.kind == "entrance" ? "the shaft mouth — E to descend"
                     : station.kind == "shaft" ? "the ladder — E down, R up"
+                    : station.kind == "vault" ? "walking to the Vault"
+                    : station.kind == "board" ? "walking to the guildhall board"
                     : "walking to the " + station.kind;
                 return;
             }
@@ -505,9 +507,10 @@ namespace Elderholt
             }
             int band = me != null ? me.band : 0;
 
+            Vector2 myPos = shown["you"];
             Rect box = Panel(10, 10, 320, 172);
             GUILayout.BeginArea(new Rect(box.x + 10, box.y + 8, box.width - 20, box.height - 12));
-            GUILayout.Label(Bands.All[band].name.ToUpperInvariant() + "   tick " + g.tick + "   rtt " + g.rtt + "ms", headText);
+            GUILayout.Label(Areas.Name(myPos.x, myPos.y, band).ToUpperInvariant() + "   tick " + g.tick + "   rtt " + g.rtt + "ms", headText);
             GUILayout.Label("Mining Lv " + XpCurve.Level(youXp) + " (" + youXp.ToString("N0") + ")   Smithing Lv " + XpCurve.Level(youSm) + " (" + youSm.ToString("N0") + ")", panelText);
             GUILayout.Label("Fenn: Mining Lv " + XpCurve.Level(fennXp), panelText);
             if (bag != null)
@@ -574,6 +577,7 @@ namespace Elderholt
                 else if (MeNear(ZoneServer.FurnacePos, ZoneServer.StationReach)) DrawFurnacePanel();
                 else if (MeNear(ZoneServer.AnvilPos, ZoneServer.StationReach)) DrawAnvilPanel();
                 else if (MeNear(ZoneServer.BoardPos, ZoneServer.StationReach)) DrawBoardPanel();
+                else if (MeNear(ZoneServer.VaultPos, ZoneServer.StationReach)) DrawVaultPanel();
                 else if (MeNear(ZoneServer.EntrancePos, ZoneServer.StationReach)) DrawLadderPanel(me, true, false);
             }
             else if (MeNear(new Vector2(Bands.All[me.band].originX, Bands.All[me.band].originZ), ZoneServer.StationReach + 2f))
@@ -592,7 +596,7 @@ namespace Elderholt
         {
             BagSnap bag = MyBag();
             Rect r = ContextBox(1 + Items.StallStock.Length);
-            GUI.Label(new Rect(r.x + 10, r.y + 6, r.width - 20, 20), "MARKET STALL — " + (bag != null ? bag.gold + "g" : ""), headText);
+            GUI.Label(new Rect(r.x + 10, r.y + 6, r.width - 20, 20), "MARKET SQUARE · trade post — " + (bag != null ? bag.gold + "g" : ""), headText);
             float y = r.y + 30;
             if (GUI.Button(new Rect(r.x + 10, y, r.width - 20, 22), "Sell everything the keeper wants"))
                 SendToServer(Intent.Sell("ALL", 0));
@@ -675,7 +679,7 @@ namespace Elderholt
             Snapshot s = Snap;
             ContractSnap c = s != null && s.contracts.TryGetValue("you", out ContractSnap cc) ? cc : null;
             Rect r = ContextBox(c == null ? 1 : 3);
-            GUI.Label(new Rect(r.x + 10, r.y + 6, r.width - 20, 20), "NOTICE BOARD — caravan orders", headText);
+            GUI.Label(new Rect(r.x + 10, r.y + 6, r.width - 20, 20), "WAYFARERS' GUILDHALL — work orders", headText);
             float y = r.y + 30;
             if (c == null)
             {
@@ -694,6 +698,24 @@ namespace Elderholt
             {
                 SendToServer(Intent.DeliverContract());
             }
+        }
+
+        // The Vault: banked goods live in character truth, out of cave-in reach.
+        void DrawVaultPanel()
+        {
+            BagSnap bag = MyBag();
+            int banked = 0;
+            if (bag != null) foreach (ItemStack it in bag.vault) banked += it.qty;
+            Rect r = ContextBox(3);
+            GUI.Label(new Rect(r.x + 10, r.y + 6, r.width - 20, 20), "THE VAULT — bank · " + banked + " items in your box", headText);
+            float y = r.y + 30;
+            if (GUI.Button(new Rect(r.x + 10, y, r.width - 20, 22), "Deposit valuables (ore · bars · blades · gems)"))
+                SendToServer(Intent.VaultDeposit());
+            y += 26;
+            if (GUI.Button(new Rect(r.x + 10, y, r.width - 20, 22), "Withdraw everything"))
+                SendToServer(Intent.VaultWithdraw());
+            y += 26;
+            GUI.Label(new Rect(r.x + 10, y, r.width - 20, 20), "banked goods are safe from cave-ins", panelText);
         }
 
         void DrawLadderPanel(PlayerSnap me, bool canDown, bool canUp)
@@ -747,6 +769,10 @@ namespace Elderholt
                 DrawWorldLabel(f.pos, f.text, floatStyle);
                 GUI.color = prev;
             }
+
+            // District and landmark signs.
+            foreach (KeyValuePair<string, Vector3> sign in world.Signs)
+                DrawWorldLabel(sign.Value, sign.Key, panelText);
 
             // Prospect notes float over their rocks while known.
             GameClient g = gameClient;

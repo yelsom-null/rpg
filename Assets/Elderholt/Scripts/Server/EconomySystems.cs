@@ -79,6 +79,53 @@ namespace Elderholt
             Save();   // economic write-through
         }
 
+        // ------------------------------------------------------------------ vault
+        // The Vault: Bracken Cross's bank. Banked goods are character truth, not
+        // carried inventory — cave-ins can't touch them ("walls = safety").
+        static readonly string[] Bankable = { "ore.", "bar.", "blade.", Items.Gem };
+
+        static bool IsBankable(string item)
+        {
+            foreach (string prefix in Bankable)
+                if (item == prefix || item.StartsWith(prefix)) return true;
+            return false;
+        }
+
+        void DoVaultDeposit(PlayerState p, CharacterRecord rec)
+        {
+            if (!Near(p, VaultPos, StationReach)) { Fail(p.id, "the Vault is in the city's north-east"); return; }
+            int moved = 0;
+            List<string> keys = new List<string>(rec.bag.Keys);
+            foreach (string k in keys)
+            {
+                if (!IsBankable(k)) continue;
+                int n = rec.bag[k];
+                rec.bag.Remove(k);
+                rec.vault.TryGetValue(k, out int have);
+                rec.vault[k] = have + n;
+                moved += n;
+            }
+            if (moved == 0) { Fail(p.id, "nothing the Vault will take — ores, bars, blades and gems only"); return; }
+            events.Add(new GameEvent { type = EventType.Traded, who = p.id, gold = 0, text = "banked " + moved + " items — safe from cave-ins now" });
+            Save();   // the ledger is the one thing that must not lie
+        }
+
+        void DoVaultWithdraw(PlayerState p, CharacterRecord rec)
+        {
+            if (!Near(p, VaultPos, StationReach)) { Fail(p.id, "the Vault is in the city's north-east"); return; }
+            if (rec.vault.Count == 0) { Fail(p.id, "your vault box is empty"); return; }
+            int moved = 0;
+            foreach (KeyValuePair<string, int> it in rec.vault)
+            {
+                rec.bag.TryGetValue(it.Key, out int have);
+                rec.bag[it.Key] = have + it.Value;
+                moved += it.Value;
+            }
+            rec.vault.Clear();
+            events.Add(new GameEvent { type = EventType.Traded, who = p.id, gold = 0, text = "withdrew " + moved + " items from the Vault" });
+            Save();
+        }
+
         // -------------------------------------------------------------- contracts
         void TickContracts()
         {

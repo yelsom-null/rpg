@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using UnityEngine;
 
 namespace Elderholt
 {
@@ -153,8 +154,8 @@ namespace Elderholt
     {
         public static readonly BandDef[] All =
         {
-            new BandDef { name = "Thornmere Hillside", originX = 0, originZ = 0, radius = 0,
-                          tempo = 4, swingInstability = 0f, ambience = "gulls, wind, open sky" },
+            new BandDef { name = "Grey Quarry", originX = 0, originZ = 0, radius = 0,
+                          tempo = 4, swingInstability = 0f, ambience = "pick-song and open sky at the quarry rim" },
             new BandDef { name = "Greyroot Gallery", originX = 220, originZ = 0, radius = 16f,
                           tempo = 5, swingInstability = 1.3f, ambience = "drips echo off grey stone" },
             new BandDef { name = "Deepseam Hollow", originX = 440, originZ = 0, radius = 14f,
@@ -166,7 +167,7 @@ namespace Elderholt
         // Where a player stands right after moving between bands.
         public static (float x, float z) Spawn(int band)
         {
-            if (band == 0) return (31f, -10f); // beside the mine entrance
+            if (band == 0) return (34f, 0f); // beside the quarry shaft mouth
             BandDef b = All[band];
             return (b.originX, b.originZ + 6f);
         }
@@ -178,6 +179,25 @@ namespace Elderholt
             if (inst >= 70) return "cracks race along the ceiling";
             if (inst >= 40) return "the timbers creak overhead";
             return "the rock is quiet";
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    //  Surface areas of the Bracken Cross map ("every gate points at a skill").
+    //  Purely presentational: the HUD names where you're standing.
+    // ---------------------------------------------------------------------------
+    public static class Areas
+    {
+        public static string Name(float x, float z, int band)
+        {
+            if (band > 0) return Bands.All[band].name;
+            if (Mathf.Abs(x) < 18f && Mathf.Abs(z) < 14f) return "Bracken Cross";
+            if (x > 24f && x < 44f && z > -12f && z < 10f) return "Grey Quarry";
+            if (z > 17f && x > -14f && x < 12f) return "Bracken Grove";
+            if (x < -22f && z > -8f && z < 12f) return "Mirror Pond";
+            if (z < -18f && Mathf.Abs(x) < 12f) return "Caravan Field";
+            if (x > 16f && z < -18f) return "Redbriar March";
+            return "Thornmere Reach";
         }
     }
 }

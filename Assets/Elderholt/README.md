@@ -1,4 +1,4 @@
-# Elderholt — Phases 1 & 2 (Unity adaptation)
+# Elderholt — Phases 1 & 2 + Bracken Cross (Unity adaptation)
 
 A Unity port of the **Elderholt** vertical slices from the design handoff.
 The original design targets Cloudflare Workers + Durable Objects + three.js; this
@@ -13,6 +13,15 @@ architecture honest: an authoritative "server" the clients never mutate, driven 
   grades, caravan contracts, the two-player wedge), Smithing as the ore consumer
   (smelt → forge → quench, quality tiers, maker's mark), and a first-pass market
   stall so **ore → gold → gear** closes.
+- **Bracken Cross — the first city** (from the City Map): a walled safe town where
+  every new character wakes. Market Square day stalls with the trade post, the
+  **Wayfarers' Guildhall** (work orders — the contract board), **The Vault** (a
+  working bank: banked ores/bars/blades/gems can't be lost to cave-ins), High
+  Street shopfront lots, Smithy Row (the public forge & anvil), Clan Quarter and
+  Warehouse Row plots. Every gate points at a skill: **Bracken Grove** (N),
+  **Mirror Pond** (W), **Grey Quarry** (E — surface veins, deep shafts below),
+  the **Caravan Field** (S) and **Redbriar March** (SE, bounty zone) staked out
+  for their phases.
 
 ## How to run
 

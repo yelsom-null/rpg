@@ -4,12 +4,16 @@ using UnityEngine;
 namespace Elderholt
 {
     // ============================================================================
-    //  ThornmereWorld — builds the zone: the Phase 1 surface (hillside mine, ore
-    //  rocks, birch stand, river bend) plus the Phase 2 camp (market stall,
-    //  furnace, anvil, notice board), the mine entrance, and the two underground
-    //  depth-band chambers. Chambers live at the same world offsets the server
-    //  uses for their coordinates, so one space serves render and simulation.
-    //  Ore-rock visuals are driven by server node state.
+    //  ThornmereWorld — builds the zone to the Bracken Cross city map:
+    //  a walled first city (no hazards inside — social + economic space) with
+    //  Market Square day stalls, the Wayfarers' Guildhall (work orders), the
+    //  Vault (bank), High Street shopfront lots, Smithy Row, the Clan Quarter
+    //  and Warehouse Row — and outside, every gate pointing at a skill:
+    //  Bracken Grove (N, logging/foraging), Mirror Pond (W, fishery),
+    //  Grey Quarry (E, surface veins + the deep shafts below), the Caravan
+    //  Field (S) and the dashed edge of Redbriar March (SE, bounty zone).
+    //  Underground depth-band chambers live at the same world offsets the
+    //  server uses. Ore-rock visuals are driven by server node state.
     // ============================================================================
     public class ThornmereWorld
     {
@@ -18,28 +22,30 @@ namespace Elderholt
         public readonly Dictionary<string, Avatar> Avatars = new Dictionary<string, Avatar>();
         public GameObject Ground { get; private set; }
         public readonly List<GameObject> Walkable = new List<GameObject>();   // ground + chamber floors
+        public readonly List<KeyValuePair<string, Vector3>> Signs = new List<KeyValuePair<string, Vector3>>();
         public Transform Marker { get; private set; }
 
         readonly Transform root;
 
         public ThornmereWorld(ZoneServer server)
         {
-            root = new GameObject("Thornmere Reach").transform;
+            root = new GameObject("Bracken Cross").transform;
 
             BuildTerrain();
-            BuildRiver();
-            BuildBirchStand();
-            BuildMineHill();
-            BuildCamp();
-            BuildMineEntrance();
+            BuildCity();
+            BuildGrove();
+            BuildPond();
+            BuildQuarry();
+            BuildCaravanField();
+            BuildRedbriar();
             BuildChambers();
             BuildRocks(server);
             BuildMarker();
 
             Avatars["you"] = new Avatar("You", Geo.ShirtYou, root);
             Avatars["fenn"] = new Avatar("Fenn", Geo.ShirtFenn, root);
-            Avatars["you"].Place(2, 4, 0);
-            Avatars["fenn"].Place(-5, 8, 0);
+            Avatars["you"].Place(0, 2, 0);
+            Avatars["fenn"].Place(-3, 4, 0);
         }
 
         void BuildTerrain()
@@ -67,7 +73,7 @@ namespace Elderholt
                     tris.Add(b); tris.Add(c); tris.Add(d);
                 }
             }
-            Mesh mesh = new Mesh { name = "Thornmere Terrain" };
+            Mesh mesh = new Mesh { name = "Bracken Terrain" };
             mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
             mesh.vertices = verts;
             mesh.triangles = Geo.DoubleSided(tris);
@@ -78,108 +84,230 @@ namespace Elderholt
             Walkable.Add(Ground);
         }
 
-        // Hillside mine to the east/south, a river channel, gentle rolling noise
-        // elsewhere, flat near spawn — matches the prototype's heightfield.
+        // Flat inside the city walls, a shallow quarry bowl to the east, a pond
+        // dip to the west, gentle rolling noise elsewhere.
         static float Height(float x, float z)
         {
-            float d = Mathf.Sqrt(x * x + z * z);
-            float h = d > 12f ? (Mathf.Sin(x * 0.35f) + Mathf.Cos(z * 0.3f)) * 0.45f + Random.value * 0.18f : 0f;
-            if (x > 14f && z < -4f) h += (x - 14f) * 0.14f;
-            if (Mathf.Abs(z - 24f + Mathf.Sin(x * 0.08f) * 6f) < 5f) h = -0.7f;
+            if (Mathf.Abs(x) < 20f && Mathf.Abs(z) < 16f) return 0f;   // the city
+
+            float qd = Mathf.Sqrt((x - 33f) * (x - 33f) + (z + 1f) * (z + 1f));
+            if (qd < 10f) return -0.5f + qd * 0.04f;                    // quarry bowl
+
+            float pd = Mathf.Sqrt((x + 30f) * (x + 30f) + (z - 2f) * (z - 2f));
+            if (pd < 9f) return -0.55f;                                  // pond dip
+
+            float h = (Mathf.Sin(x * 0.35f) + Mathf.Cos(z * 0.3f)) * 0.35f + Random.value * 0.15f;
+            if (Mathf.Abs(x) < 1.8f || Mathf.Abs(z) < 1.8f) h *= 0.2f;   // road lines
             return h;
         }
 
-        void BuildRiver()
+        // -------------------------------------------------------------- the city
+        void BuildCity()
         {
-            List<Vector3> pts = new List<Vector3>();
-            for (float x = -65; x <= 65; x += 5) pts.Add(new Vector3(x, 0.03f, 24f - Mathf.Sin(x * 0.08f) * 6f));
+            Transform city = new GameObject("City").transform;
+            city.SetParent(root, false);
 
-            const float half = 1.7f;
-            Vector3[] verts = new Vector3[pts.Count * 2];
-            for (int i = 0; i < pts.Count; i++)
-            {
-                Vector3 fwd = (pts[Mathf.Min(i + 1, pts.Count - 1)] - pts[Mathf.Max(i - 1, 0)]);
-                fwd.y = 0;
-                fwd = fwd.sqrMagnitude > 1e-5f ? fwd.normalized : Vector3.forward;
-                Vector3 perp = new Vector3(-fwd.z, 0, fwd.x);
-                verts[i * 2] = pts[i] - perp * half;
-                verts[i * 2 + 1] = pts[i] + perp * half;
-            }
-            List<int> tris = new List<int>();
-            for (int i = 0; i < pts.Count - 1; i++)
-            {
-                int a = i * 2, b = a + 1, c = a + 2, dd = a + 3;
-                tris.Add(a); tris.Add(c); tris.Add(b);
-                tris.Add(b); tris.Add(c); tris.Add(dd);
-            }
-            Mesh mesh = new Mesh { name = "River" };
-            mesh.vertices = verts;
-            mesh.SetTriangles(Geo.DoubleSided(tris), 0);
-            Geo.FlatShade(mesh);
-            Geo.MeshObject("River", mesh, Geo.Water, root);
+            BuildWallsAndRoads(city);
+            BuildMarketSquare(city);
+            BuildGuildhall(city);
+            BuildVault(city);
+            BuildHighStreet(city);
+            BuildSmithyRow(city);
+            BuildPlots(city);
         }
 
-        void BuildBirchStand()
+        void BuildWallsAndRoads(Transform city)
         {
-            int[,] spots = { { -14, -8 }, { -18, -12 }, { -11, -14 }, { -20, -6 }, { -16, -18 }, { -8, -10 }, { -24, -14 }, { -12, 2 } };
-            for (int i = 0; i < spots.GetLength(0); i++)
+            // Wall runs with gate gaps at north and south (x in [-2, 2]).
+            WallRun(city, new Vector3(-10f, 0, 14f), 16f, true);    // N-west run
+            WallRun(city, new Vector3(10f, 0, 14f), 16f, true);     // N-east run
+            WallRun(city, new Vector3(-10f, 0, -14f), 16f, true);   // S-west run
+            WallRun(city, new Vector3(10f, 0, -14f), 16f, true);    // S-east run
+            WallRun(city, new Vector3(18f, 0, 0f), 28f, false);     // east wall
+            WallRun(city, new Vector3(-18f, 0, 0f), 28f, false);    // west wall
+
+            Gate(city, new Vector3(0, 0, 14f), "N GATE");
+            Gate(city, new Vector3(0, 0, -14f), "S GATE");
+
+            // Roads: dirt strips, no colliders so clicks fall through to terrain.
+            Road(city, new Vector3(0, 0.02f, 2f), 2.4f, 56f);     // N-S high road
+            Road(city, new Vector3(2f, 0.02f, 0), 64f, 2.4f);     // E-W cross road
+        }
+
+        void WallRun(Transform parent, Vector3 centre, float length, bool alongX)
+        {
+            GameObject wall = Geo.Primitive(PrimitiveType.Cube, Geo.Stone, parent);
+            wall.name = "Wall";
+            wall.transform.localScale = alongX ? new Vector3(length, 2.6f, 0.7f) : new Vector3(0.7f, 2.6f, length);
+            wall.transform.localPosition = centre + Vector3.up * 1.3f;
+        }
+
+        void Gate(Transform parent, Vector3 at, string label)
+        {
+            for (int i = 0; i < 2; i++)
             {
-                Transform grp = new GameObject("Birch").transform;
-                grp.SetParent(root, false);
-                grp.localPosition = new Vector3(spots[i, 0], 0, spots[i, 1]);
-
-                // KayKit tree if bundled, procedural birch otherwise.
-                float s = 0.7f + Random.value * 0.5f;
-                string treePath = i % 2 == 0 ? "KayKit/Nature/tree_single_A" : "KayKit/Nature/tree_single_B";
-                if (TryModel(treePath, grp, Vector3.zero, 2.6f * s, -1f) != null) continue;
-
-                GameObject trunk = Geo.Primitive(PrimitiveType.Cylinder, Geo.BirchTrunk, grp);
-                trunk.transform.localScale = new Vector3(0.44f, 1.2f, 0.44f); // ~r0.22, h2.4
-                trunk.transform.localPosition = new Vector3(0, 1.2f, 0);
-
-                GameObject crown = Geo.MeshObject("Crown", Geo.Icosahedron(1.6f * s), Geo.BirchCrown, grp);
-                crown.transform.localPosition = new Vector3(0, 2.6f + s, 0);
+                GameObject post = Geo.Primitive(PrimitiveType.Cube, Geo.Stone, parent);
+                post.transform.localScale = new Vector3(0.9f, 3.4f, 0.9f);
+                post.transform.localPosition = at + new Vector3(i == 0 ? -2.4f : 2.4f, 1.7f, 0);
             }
+            GameObject lintel = Geo.Primitive(PrimitiveType.Cube, Geo.Timber, parent);
+            lintel.transform.localScale = new Vector3(5.8f, 0.4f, 1.0f);
+            lintel.transform.localPosition = at + Vector3.up * 3.3f;
+            TryModel("KayKit/Props/torch_lit", parent, at + new Vector3(-2.9f, 0, 0.8f), 1.3f, -1f);
+            Signs.Add(new KeyValuePair<string, Vector3>(label, at + Vector3.up * 4.1f));
         }
 
-        void BuildMineHill()
+        void Road(Transform parent, Vector3 centre, float sx, float sz)
         {
-            GameObject hill = Geo.MeshObject("MineHill", Geo.Cone(7f, 6f, 7), Geo.Hill, root);
-            hill.transform.localPosition = new Vector3(30, 1.5f, -16);
+            GameObject strip = Geo.Primitive(PrimitiveType.Cube, Geo.Hex(0xc9b98e), parent);
+            strip.name = "Road";
+            strip.transform.localScale = new Vector3(sx, 0.04f, sz);
+            strip.transform.localPosition = centre;
         }
 
-        // ------------------------------------------------------------- Phase 2 camp
-        void BuildCamp()
+        // Market Square: eight day stalls around the trade post (the stall-keeper
+        // station the economy talks to).
+        void BuildMarketSquare(Transform city)
         {
-            // Market stall: four posts, a slanted canopy, a counter.
-            Transform stall = Station("Stall", "stall", ZoneServer.StallPos, 2.2f);
+            Transform sq = new GameObject("MarketSquare").transform;
+            sq.SetParent(city, false);
+            sq.localPosition = new Vector3(ZoneServer.StallPos.x, 0, ZoneServer.StallPos.y);
+
+            GameObject plaza = Geo.Primitive(PrimitiveType.Cube, Geo.Hex(0xd9c98e), sq);
+            plaza.transform.localScale = new Vector3(11f, 0.06f, 8f);
+            plaza.transform.localPosition = new Vector3(0, 0.03f, 0);
+
+            // Day stalls: two rows of four.
+            Color[] canopies = { Geo.Canopy, Geo.Hex(0x4a6f96), Geo.Hex(0x5f7a44), Geo.Hex(0xb09040) };
+            for (int i = 0; i < 8; i++)
+            {
+                float sx = -3.9f + (i % 4) * 2.6f;
+                float sz = i < 4 ? -2.6f : 2.6f;
+                Transform st = new GameObject("DayStall").transform;
+                st.SetParent(sq, false);
+                st.localPosition = new Vector3(sx, 0, sz);
+                for (int p = 0; p < 4; p++)
+                {
+                    GameObject post = Geo.Primitive(PrimitiveType.Cube, Geo.Timber, st);
+                    post.transform.localScale = new Vector3(0.1f, 1.6f, 0.1f);
+                    post.transform.localPosition = new Vector3(p % 2 == 0 ? -0.8f : 0.8f, 0.8f, p < 2 ? -0.6f : 0.6f);
+                }
+                GameObject canopy = Geo.Primitive(PrimitiveType.Cube, canopies[i % canopies.Length], st);
+                canopy.transform.localScale = new Vector3(2.0f, 0.08f, 1.6f);
+                canopy.transform.localPosition = new Vector3(0, 1.7f, 0);
+                canopy.transform.localRotation = Quaternion.Euler(6f, 0, 0);
+                if (i % 3 == 0) TryModel("KayKit/Props/box_small", st, new Vector3(0.3f, 0, 0), 1.2f, -1f);
+            }
+
+            // The trade post at centre: the clickable stall station.
+            Transform post2 = Station("TradePost", "stall", ZoneServer.StallPos, 2.0f);
+            if (TryModel("KayKit/Props/table_long", post2, Vector3.zero, 1.6f, 0f) == null)
+            {
+                GameObject counter = Geo.Primitive(PrimitiveType.Cube, Geo.Timber, post2);
+                counter.transform.localScale = new Vector3(2.4f, 0.5f, 0.6f);
+                counter.transform.localPosition = new Vector3(0, 0.55f, 0);
+            }
+            TryModel("KayKit/Props/coin_stack_medium", post2, new Vector3(0.5f, 0.85f, 0), 1.2f, -1f);
+            TryModel("KayKit/Props/barrel_large", post2, new Vector3(-1.8f, 0, 0.7f), 1.3f, -1f);
+            Signs.Add(new KeyValuePair<string, Vector3>("MARKET SQUARE", new Vector3(ZoneServer.StallPos.x, 3.1f, ZoneServer.StallPos.y)));
+        }
+
+        void BuildGuildhall(Transform city)
+        {
+            Transform hall = new GameObject("Guildhall").transform;
+            hall.SetParent(city, false);
+            hall.localPosition = new Vector3(-10f, 0, 9f);
+
+            Building(hall, new Vector3(7.5f, 3.2f, 4.5f), Geo.Hex(0xd0b878));
+            TryModel("KayKit/Props/torch_lit", hall, new Vector3(2.2f, 0, -2.6f), 1.3f, -1f);
+            Signs.Add(new KeyValuePair<string, Vector3>("WAYFARERS' GUILDHALL", new Vector3(-10f, 4.3f, 9f)));
+
+            // The work-order board out front (the contract station).
+            Transform board = Station("WorkOrders", "board", ZoneServer.BoardPos, 1.6f);
+            for (int i = 0; i < 2; i++)
+            {
+                GameObject post = Geo.Primitive(PrimitiveType.Cube, Geo.Timber, board);
+                post.transform.localScale = new Vector3(0.14f, 1.9f, 0.14f);
+                post.transform.localPosition = new Vector3(i == 0 ? -0.8f : 0.8f, 0.95f, 0);
+            }
+            GameObject panel = Geo.Primitive(PrimitiveType.Cube, Geo.Board, board);
+            panel.transform.localScale = new Vector3(1.9f, 1.0f, 0.08f);
+            panel.transform.localPosition = new Vector3(0, 1.35f, 0);
+        }
+
+        void BuildVault(Transform city)
+        {
+            Transform vault = new GameObject("Vault").transform;
+            vault.SetParent(city, false);
+            vault.localPosition = new Vector3(10f, 0, 9f);
+
+            Building(vault, new Vector3(6f, 3.6f, 4f), Geo.Hex(0xcfc39a));
+            Signs.Add(new KeyValuePair<string, Vector3>("THE VAULT", new Vector3(10f, 4.7f, 9f)));
+
+            // The teller's chest out front (the bank station).
+            Transform teller = Station("VaultTeller", "vault", ZoneServer.VaultPos, 1.8f);
+            if (TryModel("KayKit/Props/chest", teller, Vector3.zero, 1.5f, 180f) == null)
+            {
+                GameObject chest = Geo.Primitive(PrimitiveType.Cube, Geo.Timber, teller);
+                chest.transform.localScale = new Vector3(1.1f, 0.8f, 0.7f);
+                chest.transform.localPosition = new Vector3(0, 0.4f, 0);
+            }
+            TryModel("KayKit/Props/torch_lit", teller, new Vector3(1.4f, 0, 0.4f), 1.3f, -1f);
+        }
+
+        // High Street: seven shopfront lots down the west side. Two read as
+        // deeded (built), the rest as claimable frames — the deed economy is a
+        // later phase; the street sets the stage.
+        void BuildHighStreet(Transform city)
+        {
+            for (int i = 0; i < 7; i++)
+            {
+                Vector3 at = new Vector3(-14f, 0, -9f + i * 2.7f);
+                if (i < 2)
+                {
+                    Transform shop = new GameObject("Shop_" + i).transform;
+                    shop.SetParent(city, false);
+                    shop.localPosition = at;
+                    Building(shop, new Vector3(2.2f, 2.0f, 2.0f), Geo.Hex(0xe2d4ae));
+                    TryModel("KayKit/Props/crates_stacked", shop, new Vector3(1.5f, 0, 0), 1.1f, -1f);
+                }
+                else
+                {
+                    // Claimable lot: corner posts and a rope-line frame.
+                    Transform lot = new GameObject("Lot_" + i).transform;
+                    lot.SetParent(city, false);
+                    lot.localPosition = at;
+                    for (int c = 0; c < 4; c++)
+                    {
+                        GameObject post = Geo.Primitive(PrimitiveType.Cube, Geo.Timber, lot);
+                        post.transform.localScale = new Vector3(0.12f, 0.9f, 0.12f);
+                        post.transform.localPosition = new Vector3(c % 2 == 0 ? -1.1f : 1.1f, 0.45f, c < 2 ? -1f : 1f);
+                    }
+                }
+            }
+            Signs.Add(new KeyValuePair<string, Vector3>("HIGH STREET — lots for deed", new Vector3(-14f, 2.9f, 0f)));
+        }
+
+        void BuildSmithyRow(Transform city)
+        {
+            Transform row = new GameObject("SmithyRow").transform;
+            row.SetParent(city, false);
+            row.localPosition = new Vector3(2.5f, 0, -9.5f);
+
+            // Open work shed over the public forges.
             for (int i = 0; i < 4; i++)
             {
-                GameObject post = Geo.Primitive(PrimitiveType.Cube, Geo.Timber, stall);
-                post.transform.localScale = new Vector3(0.14f, 2.0f, 0.14f);
-                post.transform.localPosition = new Vector3(i % 2 == 0 ? -1.1f : 1.1f, 1.0f, i < 2 ? -0.8f : 0.8f);
+                GameObject post = Geo.Primitive(PrimitiveType.Cube, Geo.Timber, row);
+                post.transform.localScale = new Vector3(0.18f, 2.6f, 0.18f);
+                post.transform.localPosition = new Vector3(i % 2 == 0 ? -3.2f : 3.2f, 1.3f, i < 2 ? -1.6f : 1.6f);
             }
-            GameObject canopy = Geo.Primitive(PrimitiveType.Cube, Geo.Canopy, stall);
-            canopy.transform.localScale = new Vector3(2.8f, 0.1f, 2.2f);
-            canopy.transform.localPosition = new Vector3(0, 2.1f, 0);
-            canopy.transform.localRotation = Quaternion.Euler(8f, 0, 0);
-            if (TryModel("KayKit/Props/table_long", stall, new Vector3(0, 0, -0.9f), 1.6f, 0f) == null)
-            {
-                GameObject counter = Geo.Primitive(PrimitiveType.Cube, Geo.Timber, stall);
-                counter.transform.localScale = new Vector3(2.4f, 0.5f, 0.6f);
-                counter.transform.localPosition = new Vector3(0, 0.55f, -0.9f);
-            }
-            TryModel("KayKit/Props/coin_stack_medium", stall, new Vector3(0.5f, 0.85f, -0.9f), 1.2f, -1f);
+            GameObject roof = Geo.Primitive(PrimitiveType.Cube, Geo.Hex(0xc9b0a0), row);
+            roof.transform.localScale = new Vector3(7.4f, 0.12f, 4.0f);
+            roof.transform.localPosition = new Vector3(0, 2.7f, 0);
+            roof.transform.localRotation = Quaternion.Euler(4f, 0, 0);
+            Signs.Add(new KeyValuePair<string, Vector3>("SMITHY ROW", new Vector3(2.5f, 3.6f, -9.5f)));
 
-            // Camp clutter around the stall (visual only; silently skipped if the
-            // model pack isn't present).
-            TryModel("KayKit/Props/barrel_large", stall, new Vector3(-2.2f, 0, 0.6f), 1.4f, -1f);
-            TryModel("KayKit/Props/crates_stacked", stall, new Vector3(2.4f, 0, 0.8f), 1.4f, -1f);
-            TryModel("KayKit/Props/box_small", stall, new Vector3(1.8f, 0, -1.6f), 1.3f, -1f);
-            TryModel("KayKit/Props/keg", stall, new Vector3(-1.8f, 0, -1.5f), 1.3f, -1f);
-            TryModel("KayKit/Props/chest", stall, new Vector3(-2.6f, 0, -0.4f), 1.3f, 40f);
-
-            // Furnace: stone block, chimney, ember mouth.
+            // Furnace station.
             Transform furnace = Station("Furnace", "furnace", ZoneServer.FurnacePos, 1.6f);
             GameObject body = Geo.Primitive(PrimitiveType.Cube, Geo.Stone, furnace);
             body.transform.localScale = new Vector3(1.4f, 1.2f, 1.4f);
@@ -198,7 +326,7 @@ namespace Elderholt
             glow.range = 6f;
             glow.intensity = 1.4f;
 
-            // Anvil: base + horn block on a stump.
+            // Anvil station.
             Transform anvil = Station("Anvil", "anvil", ZoneServer.AnvilPos, 1.4f);
             GameObject stump = Geo.Primitive(PrimitiveType.Cylinder, Geo.Timber, anvil);
             stump.transform.localScale = new Vector3(0.8f, 0.3f, 0.8f);
@@ -207,23 +335,107 @@ namespace Elderholt
             top.transform.localScale = new Vector3(1.1f, 0.35f, 0.45f);
             top.transform.localPosition = new Vector3(0, 0.78f, 0);
 
-            // Notice board: two posts and a panel.
-            Transform board = Station("NoticeBoard", "board", ZoneServer.BoardPos, 1.6f);
-            for (int i = 0; i < 2; i++)
-            {
-                GameObject post = Geo.Primitive(PrimitiveType.Cube, Geo.Timber, board);
-                post.transform.localScale = new Vector3(0.14f, 1.9f, 0.14f);
-                post.transform.localPosition = new Vector3(i == 0 ? -0.8f : 0.8f, 0.95f, 0);
-            }
-            GameObject panel = Geo.Primitive(PrimitiveType.Cube, Geo.Board, board);
-            panel.transform.localScale = new Vector3(1.9f, 1.0f, 0.08f);
-            panel.transform.localPosition = new Vector3(0, 1.35f, 0);
+            TryModel("KayKit/Props/keg", row, new Vector3(-2.6f, 0, 1.0f), 1.3f, -1f);
+            TryModel("KayKit/Props/box_small", row, new Vector3(2.6f, 0, 1.1f), 1.3f, -1f);
         }
 
-        void BuildMineEntrance()
+        // Clan Quarter hall plots and Warehouse Row bulk lots (east side) —
+        // staked ground for later phases.
+        void BuildPlots(Transform city)
         {
+            for (int i = 0; i < 3; i++)
+                PlotFrame(city, new Vector3(13f, 0, 7f - i * 4f), 3.2f, 2.8f, Geo.Hex(0x7a8256));
+            Signs.Add(new KeyValuePair<string, Vector3>("CLAN QUARTER — hall plots", new Vector3(13f, 2.7f, 9.5f)));
+
+            for (int i = 0; i < 2; i++)
+                PlotFrame(city, new Vector3(13f, 0, -7f - i * 4f), 3.2f, 2.8f, Geo.Hex(0x8a7a56));
+            Signs.Add(new KeyValuePair<string, Vector3>("WAREHOUSE ROW", new Vector3(13f, 2.7f, -6f)));
+        }
+
+        void PlotFrame(Transform parent, Vector3 at, float w, float d, Color c)
+        {
+            Transform plot = new GameObject("Plot").transform;
+            plot.SetParent(parent, false);
+            plot.localPosition = at;
+            for (int i = 0; i < 4; i++)
+            {
+                GameObject post = Geo.Primitive(PrimitiveType.Cube, c, plot);
+                post.transform.localScale = new Vector3(0.15f, 1.0f, 0.15f);
+                post.transform.localPosition = new Vector3(i % 2 == 0 ? -w / 2f : w / 2f, 0.5f, i < 2 ? -d / 2f : d / 2f);
+            }
+        }
+
+        // A simple building: plinth walls + slab roof; door gap faces -z.
+        void Building(Transform parent, Vector3 size, Color c)
+        {
+            GameObject body = Geo.Primitive(PrimitiveType.Cube, c, parent);
+            body.transform.localScale = size;
+            body.transform.localPosition = new Vector3(0, size.y / 2f, 0);
+            GameObject roof = Geo.Primitive(PrimitiveType.Cube, Geo.Hex(0x8a6a56), parent);
+            roof.transform.localScale = new Vector3(size.x + 0.6f, 0.25f, size.z + 0.6f);
+            roof.transform.localPosition = new Vector3(0, size.y + 0.12f, 0);
+            GameObject door = Geo.Primitive(PrimitiveType.Cube, Geo.Hex(0x3a2c1c), parent);
+            door.transform.localScale = new Vector3(1.0f, 1.7f, 0.1f);
+            door.transform.localPosition = new Vector3(0, 0.85f, -size.z / 2f - 0.03f);
+        }
+
+        // ---------------------------------------------------------- the outskirts
+        void BuildGrove()
+        {
+            int[,] spots = { { -8, 21 }, { -4, 25 }, { 0, 22 }, { 4, 27 }, { -10, 27 }, { 7, 23 }, { -2, 29 }, { 3, 20 } };
+            for (int i = 0; i < spots.GetLength(0); i++)
+            {
+                Transform grp = new GameObject("GroveTree").transform;
+                grp.SetParent(root, false);
+                grp.localPosition = new Vector3(spots[i, 0], 0, spots[i, 1]);
+
+                float s = 0.7f + Random.value * 0.5f;
+                string treePath = i % 2 == 0 ? "KayKit/Nature/tree_single_A" : "KayKit/Nature/tree_single_B";
+                if (TryModel(treePath, grp, Vector3.zero, 2.6f * s, -1f) != null) continue;
+
+                GameObject trunk = Geo.Primitive(PrimitiveType.Cylinder, Geo.BirchTrunk, grp);
+                trunk.transform.localScale = new Vector3(0.44f, 1.2f, 0.44f);
+                trunk.transform.localPosition = new Vector3(0, 1.2f, 0);
+                GameObject crown = Geo.MeshObject("Crown", Geo.Icosahedron(1.6f * s), Geo.BirchCrown, grp);
+                crown.transform.localPosition = new Vector3(0, 2.6f + s, 0);
+            }
+            Signs.Add(new KeyValuePair<string, Vector3>("BRACKEN GROVE — logging · foraging (soon)", new Vector3(-2f, 3.4f, 24f)));
+        }
+
+        void BuildPond()
+        {
+            GameObject water = Geo.Primitive(PrimitiveType.Cylinder, Geo.Water, root);
+            water.name = "MirrorPond";
+            water.transform.localScale = new Vector3(15f, 0.03f, 12f);
+            water.transform.localPosition = new Vector3(-30f, -0.25f, 2f);
+            TryModel("KayKit/Nature/rock_single_B", root, new Vector3(-24f, 0, 8f), 2.0f, -1f);
+            Signs.Add(new KeyValuePair<string, Vector3>("MIRROR POND — fishery (soon)", new Vector3(-30f, 2.6f, 2f)));
+        }
+
+        void BuildQuarry()
+        {
+            Transform q = new GameObject("GreyQuarry").transform;
+            q.SetParent(root, false);
+            q.localPosition = new Vector3(33f, 0, -1f);
+
+            // Rim boulders with a gap toward the city road (west).
+            int rim = 12;
+            for (int i = 0; i < rim; i++)
+            {
+                float a = (float)i / rim * Mathf.PI * 2f;
+                if (Mathf.Abs(Mathf.DeltaAngle(a * Mathf.Rad2Deg, 180f)) < 32f) continue;   // west opening
+                Vector3 at = new Vector3(Mathf.Cos(a) * 10f, 0, Mathf.Sin(a) * 10f);
+                string rk = i % 2 == 0 ? "KayKit/Nature/rock_single_A" : "KayKit/Nature/rock_single_B";
+                if (TryModel(rk, q, at, 3.2f + Random.value * 1.5f, -1f) == null)
+                {
+                    GameObject wall = Geo.MeshObject("RimRock", Geo.Icosahedron(2.2f + Random.value), Geo.ChamberWall, q);
+                    wall.transform.localPosition = at + Vector3.up * 0.9f;
+                }
+            }
+            Signs.Add(new KeyValuePair<string, Vector3>("GREY QUARRY — deep shafts below", new Vector3(33f, 3.8f, -1f)));
+
+            // The shaft mouth down to Greyroot Gallery.
             Transform ent = Station("MineEntrance", "entrance", ZoneServer.EntrancePos, 2.4f);
-            // Dark doorway cut into the hillside, framed in timber.
             GameObject dark = Geo.Primitive(PrimitiveType.Cube, Color.black, ent);
             dark.transform.localScale = new Vector3(1.8f, 2.2f, 0.4f);
             dark.transform.localPosition = new Vector3(0, 1.1f, 0.3f);
@@ -238,7 +450,36 @@ namespace Elderholt
             }
             TryModel("KayKit/Props/torch_lit", ent, new Vector3(1.6f, 0, -0.4f), 1.4f, -1f);
             TryModel("KayKit/Props/barrel_large", ent, new Vector3(-1.9f, 0, -0.6f), 1.3f, -1f);
-            ent.rotation = Quaternion.Euler(0, -35f, 0);
+            ent.rotation = Quaternion.Euler(0, 90f, 0);   // mouth faces the quarry floor (west)
+        }
+
+        void BuildCaravanField()
+        {
+            Transform f = new GameObject("CaravanField").transform;
+            f.SetParent(root, false);
+            f.localPosition = new Vector3(0, 0, -24f);
+
+            for (int i = 0; i < 6; i++)
+            {
+                GameObject post = Geo.Primitive(PrimitiveType.Cube, Geo.Timber, f);
+                post.transform.localScale = new Vector3(0.15f, 1.1f, 0.15f);
+                post.transform.localPosition = new Vector3(-6f + i * 2.4f, 0.55f, 2.2f);
+            }
+            TryModel("KayKit/Props/crates_stacked", f, new Vector3(-3f, 0, -0.5f), 1.4f, -1f);
+            TryModel("KayKit/Props/barrel_large", f, new Vector3(2.5f, 0, -1f), 1.4f, -1f);
+            TryModel("KayKit/Props/box_small", f, new Vector3(0.4f, 0, 0.6f), 1.3f, -1f);
+            Signs.Add(new KeyValuePair<string, Vector3>("CARAVAN FIELD — runs depart south (soon)", new Vector3(0, 2.8f, -24f)));
+        }
+
+        void BuildRedbriar()
+        {
+            GameObject march = Geo.Primitive(PrimitiveType.Cube, Geo.Hex(0xc9a08e), root);
+            march.name = "RedbriarMarch";
+            march.transform.localScale = new Vector3(26f, 0.05f, 14f);
+            march.transform.localPosition = new Vector3(30f, 0.02f, -27f);
+            for (int i = 0; i < 3; i++)
+                TryModel("KayKit/Nature/rock_single_E", root, new Vector3(24f + i * 6f, 0, -25f - (i % 2) * 5f), 2.4f, -1f);
+            Signs.Add(new KeyValuePair<string, Vector3>("REDBRIAR MARCH — bounty zone · PvP (later)", new Vector3(30f, 3.0f, -27f)));
         }
 
         // Underground depth-band chambers, built where the server places them.

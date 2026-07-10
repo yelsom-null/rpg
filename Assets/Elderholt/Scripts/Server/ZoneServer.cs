@@ -41,6 +41,7 @@ namespace Elderholt
         public float x, z;
         public int band;
         public Dictionary<string, int> bag = new Dictionary<string, int>();
+        public Dictionary<string, int> vault = new Dictionary<string, int>();   // banked at the Vault
         public ContractSnap contract;   // null = none offered
     }
 
@@ -87,13 +88,17 @@ namespace Elderholt
         public const float TickMs = 600f;
         static readonly float Speed = 4.2f * TickMs / 1000f; // units per tick
 
-        // Camp station positions (surface, band 0). The world builder mirrors
-        // these; the server owns them because reach checks are server-side.
-        public static readonly Vector2 StallPos = new Vector2(7f, -3f);
-        public static readonly Vector2 FurnacePos = new Vector2(11f, -6f);
-        public static readonly Vector2 AnvilPos = new Vector2(13.5f, -3.5f);
-        public static readonly Vector2 BoardPos = new Vector2(4f, -6f);
-        public static readonly Vector2 EntrancePos = new Vector2(31f, -13f);
+        // Bracken Cross station positions (surface, band 0). The world builder
+        // mirrors these; the server owns them because reach checks are
+        // server-side. Trade post in Market Square, forge/anvil on Smithy Row,
+        // work orders at the Wayfarers' Guildhall, the Vault bank to the NE,
+        // and the shaft mouth out east in Grey Quarry.
+        public static readonly Vector2 StallPos = new Vector2(4f, -2f);
+        public static readonly Vector2 FurnacePos = new Vector2(1f, -9.5f);
+        public static readonly Vector2 AnvilPos = new Vector2(4.5f, -9.5f);
+        public static readonly Vector2 BoardPos = new Vector2(-10f, 5.2f);
+        public static readonly Vector2 VaultPos = new Vector2(10f, 5.5f);
+        public static readonly Vector2 EntrancePos = new Vector2(36f, 0f);
         public const float StationReach = 5f;
         public const float NodeReach = 2.6f;
 
@@ -115,9 +120,9 @@ namespace Elderholt
         // (x, z, band, metal) for every node in the zone.
         static readonly (float x, float z, int band, string metal)[] NodeDefs =
         {
-            // Band 0 — Thornmere Hillside (the Phase 1 six)
-            (20, -12, 0, "copper"), (23, -9, 0, "copper"), (18, -16, 0, "copper"),
-            (25, -14, 0, "copper"), (21, -19, 0, "copper"), (27, -10, 0, "copper"),
+            // Band 0 — Grey Quarry surface veins (east of the city, per the map)
+            (29, -5, 0, "copper"), (31, 3, 0, "copper"), (33, -7, 0, "copper"),
+            (38, 4, 0, "copper"), (30, -1, 0, "copper"), (39, -4, 0, "copper"),
             // Band 1 — Greyroot Gallery
             (212, -6, 1, "copper"), (228, -4, 1, "tin"), (214, 7, 1, "tin"),
             (226, 8, 1, "copper"), (220, -10, 1, "tin"),
@@ -125,7 +130,7 @@ namespace Elderholt
             (434, -5, 2, "iron"), (446, -4, 2, "iron"), (436, 6, 2, "iron"), (445, 6, 2, "iron"),
         };
 
-        static string SavePath => Path.Combine(Application.persistentDataPath, "elderholt_p2_server_v1.json");
+        static string SavePath => Path.Combine(Application.persistentDataPath, "elderholt_server_v3.json");
 
         public ZoneServer()
         {
@@ -153,9 +158,9 @@ namespace Elderholt
                 for (int b = 0; b < Bands.Count && b < saved.instability.Length; b++)
                     instability[b] = saved.instability[b];
 
-            // Seed the two characters (matches the prototype's chr map).
-            SeedChar("you", 2, 4);
-            SeedChar("fenn", -5, 8);
+            // Seed the two characters — every new character wakes in Bracken Cross.
+            SeedChar("you", 0, 2);
+            SeedChar("fenn", -3, 4);
             if (saved != null && saved.chr != null)
             {
                 foreach (CharSave cs in saved.chr)
@@ -173,6 +178,9 @@ namespace Elderholt
                     if (cs.bag != null)
                         foreach (ItemSave it in cs.bag)
                             if (it.qty > 0) r.bag[it.item] = it.qty;
+                    if (cs.vault != null)
+                        foreach (ItemSave it in cs.vault)
+                            if (it.qty > 0) r.vault[it.item] = it.qty;
                     if (!string.IsNullOrEmpty(cs.cItem))
                         r.contract = new ContractSnap { item = cs.cItem, qty = cs.cQty, gold = cs.cGold, deadline = cs.cDeadline, accepted = cs.cAccepted };
                     chr[cs.id] = r;
@@ -328,6 +336,8 @@ namespace Elderholt
                     case IntentType.Buy: DoBuy(p, c, m.item); break;
                     case IntentType.AcceptContract: DoAcceptContract(p, c); break;
                     case IntentType.DeliverContract: DoDeliverContract(p, c); break;
+                    case IntentType.VaultDeposit: DoVaultDeposit(p, c); break;
+                    case IntentType.VaultWithdraw: DoVaultWithdraw(p, c); break;
                 }
             }
             actions.Clear();
@@ -443,6 +453,8 @@ namespace Elderholt
                 BagSnap bag = new BagSnap { gold = kv.Value.gold, pickaxe = kv.Value.pickaxe };
                 foreach (KeyValuePair<string, int> it in kv.Value.bag)
                     if (it.Value > 0) bag.items.Add(new ItemStack { item = it.Key, qty = it.Value });
+                foreach (KeyValuePair<string, int> it in kv.Value.vault)
+                    if (it.Value > 0) bag.vault.Add(new ItemStack { item = it.Key, qty = it.Value });
                 snap.bags[kv.Key] = bag;
 
                 if (kv.Value.contract != null) snap.contracts[kv.Key] = kv.Value.contract;
@@ -521,6 +533,8 @@ namespace Elderholt
                     };
                     foreach (KeyValuePair<string, int> it in r.bag)
                         if (it.Value > 0) cs.bag.Add(new ItemSave { item = it.Key, qty = it.Value });
+                    foreach (KeyValuePair<string, int> it in r.vault)
+                        if (it.Value > 0) cs.vault.Add(new ItemSave { item = it.Key, qty = it.Value });
                     if (r.contract != null)
                     {
                         cs.cItem = r.contract.item; cs.cQty = r.contract.qty;

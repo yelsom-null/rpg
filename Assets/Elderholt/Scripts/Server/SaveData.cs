@@ -32,6 +32,7 @@ namespace Elderholt
         public float z;
         public int band;
         public List<ItemSave> bag = new List<ItemSave>();
+        public List<ItemSave> vault = new List<ItemSave>();
 
         // Active/offered contract (empty item = none).
         public string cItem;

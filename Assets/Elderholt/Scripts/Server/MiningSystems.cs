@@ -208,7 +208,7 @@ namespace Elderholt
             bool near = p.band == 0
                 ? Near(p, EntrancePos, StationReach)
                 : Near(p, new Vector2(Bands.All[p.band].originX, Bands.All[p.band].originZ), StationReach + 2f);
-            if (!near) { Fail(p.id, p.band == 0 ? "the mine entrance is on the hillside" : "the shaft ladder is at the chamber's heart"); return; }
+            if (!near) { Fail(p.id, p.band == 0 ? "the shaft mouth is in Grey Quarry, east of the city" : "the shaft ladder is at the chamber's heart"); return; }
 
             MovePlayerToBand(p, rec, target);
             events.Add(new GameEvent { type = EventType.BandMoved, who = p.id, band = target });

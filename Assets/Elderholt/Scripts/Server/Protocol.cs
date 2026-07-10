@@ -31,6 +31,9 @@ namespace Elderholt
         Buy,        // buy one of item at the stall (item id)
         AcceptContract,
         DeliverContract,
+        // Bracken Cross — the Vault (bank; banked goods survive cave-ins)
+        VaultDeposit,   // move all valuables from bag to vault
+        VaultWithdraw,  // move everything from vault back to bag
     }
 
     // Client -> server. One pending movement-class intent per player; a newer
@@ -66,6 +69,8 @@ namespace Elderholt
         public static Intent Buy(string item) => new Intent { type = IntentType.Buy, item = item };
         public static Intent AcceptContract() => new Intent { type = IntentType.AcceptContract };
         public static Intent DeliverContract() => new Intent { type = IntentType.DeliverContract };
+        public static Intent VaultDeposit() => new Intent { type = IntentType.VaultDeposit };
+        public static Intent VaultWithdraw() => new Intent { type = IntentType.VaultWithdraw };
     }
 
     public enum EventType
@@ -141,6 +146,7 @@ namespace Elderholt
         public int gold;
         public string pickaxe;                     // equipped pickaxe item id
         public List<ItemStack> items = new List<ItemStack>();
+        public List<ItemStack> vault = new List<ItemStack>();   // banked at the Vault
     }
 
     public class ContractSnap

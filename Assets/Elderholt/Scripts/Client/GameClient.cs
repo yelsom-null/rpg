@@ -54,9 +54,6 @@ namespace Elderholt
             {
                 switch (ev.type)
                 {
-                    case EventType.Chat:
-                        host.PushChat(ev.from, ev.text, ev.who == id);
-                        break;
                     case EventType.Xp:
                         PendingXpFloats.Enqueue(ev);
                         break;

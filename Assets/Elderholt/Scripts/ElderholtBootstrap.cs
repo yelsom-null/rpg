@@ -6,16 +6,17 @@ namespace Elderholt
 {
     // ============================================================================
     //  ElderholtBootstrap — the host process. It stands up the authoritative
-    //  ZoneServer, the Thornmere world, the local player's client and the Fenn
-    //  bot, connects them through a simulated-latency pipe, and then each frame:
-    //  advances the 600 ms tick, delivers piped messages, interpolates avatars
-    //  between the last two snapshots, drives the orbit camera, turns clicks and
-    //  keys into intents, and paints the monospace HUD/chat/panel overlay.
+    //  ZoneServer, the Thornmere world and the local player's client, and then
+    //  each frame: advances the 600 ms tick, interpolates avatars between the
+    //  last two snapshots, drives the orbit camera, turns clicks and keys into
+    //  intents, and paints the monospace HUD/panel overlay.
     //
-    //  Phase 2 adds: depth-band ambience, the strike-rhythm indicator, wedge via
-    //  right-click, shoring, the bag, and the stall / furnace / anvil / notice-
-    //  board context panels. Keys: Space strike/hammer · W pump · Q quench ·
-    //  T shore · B bag · E descend · R ascend.
+    //  Deepseam is single-player: the client talks to the in-process server
+    //  directly (no latency pipe, no second client). The server/client split
+    //  stays because it keeps the sim deterministic and testable.
+    //
+    //  Keys: Space strike/hammer · F pump · Q quench · T shore · B bag ·
+    //  E descend · R ascend · X run.
     //
     //  Auto-boots on Play (no scene wiring required) via RuntimeInitialize.
     // ============================================================================
@@ -28,13 +29,10 @@ namespace Elderholt
             new GameObject("Elderholt").AddComponent<ElderholtBootstrap>();
         }
 
-        const float LatencyMs = 110f;
-
         Camera cam;
         ZoneServer server;
         ThornmereWorld world;
         GameClient gameClient;
-        BotClient botClient;
 
         // camera orbit state (movement doc §6: yaw free, pitch 9°–69°, zoom 6–24 m)
         float yaw = 0.6f, pitch = 0.42f, dist = 14f;
@@ -51,19 +49,17 @@ namespace Elderholt
         Renderer markerRend;
 
         float tickAccum;
-        float pingAccum;
 
         // input drag tracking
         bool pointerDown, dragging;
         Vector3 lastMouse;
-        bool chatFocused;
         bool bagOpen;
         string mineTargetId;    // node we last sent interact for (strike indicator)
         int shownBand;          // band whose ambience is currently applied
 
         readonly Dictionary<string, Vector2> shown = new Dictionary<string, Vector2>
         {
-            { "you", new Vector2(0, 2) }, { "fenn", new Vector2(-3, 4) },
+            { "you", new Vector2(0, 2) },
         };
 
         class Sched { public double due; public Action a; }
@@ -71,10 +67,6 @@ namespace Elderholt
 
         class Floaty { public string text; public Vector3 pos; public float life; }
         readonly List<Floaty> floats = new List<Floaty>();
-
-        struct ChatMsg { public string from; public string text; public bool you; }
-        readonly List<ChatMsg> chatLog = new List<ChatMsg>();
-        string chatDraft = "";
 
         // Rects the IMGUI drew last frame, so world clicks don't fire through panels.
         readonly List<Rect> guiRects = new List<Rect>();
@@ -85,12 +77,6 @@ namespace Elderholt
         public void Schedule(float delaySeconds, Action action)
         {
             scheduled.Add(new Sched { due = NowMs + delaySeconds * 1000.0, a = action });
-        }
-
-        public void PushChat(string from, string text, bool isYou)
-        {
-            chatLog.Add(new ChatMsg { from = from, text = text, you = isYou });
-            if (chatLog.Count > 6) chatLog.RemoveRange(0, chatLog.Count - 6);
         }
 
         // ---------- setup ----------
@@ -157,21 +143,15 @@ namespace Elderholt
             RenderSettings.fogEndDistance = band >= 2 ? 34f : 48f;
         }
 
-        // Simulated one-way latency, matching the prototype's lat() jitter.
-        float LatSeconds() => Mathf.Max(0f, LatencyMs * (0.75f + UnityEngine.Random.value * 0.5f) / 2f) / 1000f;
-
+        // Single-player: the client and server share the process, so intents and
+        // snapshots are delivered directly — no simulated latency.
         void ConnectClients()
         {
             gameClient = new GameClient(this, "you");
-            server.Connect("you", "You", snap => Schedule(LatSeconds(), () => gameClient.OnSnapshot(snap)));
-
-            botClient = new BotClient(this, server, BotSend, "fenn");
-            server.Connect("fenn", "Fenn", snap => Schedule(LatSeconds(), () => botClient.OnSnapshot(snap)));
-            botClient.Greet();
+            server.Connect("you", "You", snap => gameClient.OnSnapshot(snap));
         }
 
-        void SendToServer(Intent i) => Schedule(LatSeconds(), () => server.SubmitIntent("you", i));
-        void BotSend(Intent i) => Schedule(LatSeconds(), () => server.SubmitIntent("fenn", i));
+        void SendToServer(Intent i) => server.SubmitIntent("you", i);
 
         // ---------- snapshot helpers ----------
         Snapshot Snap => gameClient.Next.snap;
@@ -213,9 +193,6 @@ namespace Elderholt
                 tickAccum -= ZoneServer.TickMs;
                 server.Step();
             }
-
-            pingAccum += Time.deltaTime;
-            if (pingAccum >= 2f) { pingAccum = 0f; SendToServer(Intent.Ping(NowMs)); }
 
             HandleInput();
             RenderInterpolated(dt);
@@ -426,8 +403,6 @@ namespace Elderholt
 
             if (Input.GetMouseButtonUp(1) && !PointerOverUI()) Pick(true);
 
-            if (chatFocused) return;   // typing — keys stay out of the world
-
             // Arrow keys are the camera's (§6): ←/→ yaw, ↑/↓ pitch.
             float dt = Time.deltaTime;
             if (Input.GetKey(KeyCode.LeftArrow)) { yaw += 2.2f * dt; compassReset = false; }
@@ -571,7 +546,7 @@ namespace Elderholt
         }
 
         // ---------- UI ----------
-        GUIStyle panelText, nameTagStyle, floatStyle, chatYou, chatOther, warnText, headText;
+        GUIStyle panelText, floatStyle, warnText, headText;
         Texture2D panelBg, barBg, barFill;
 
         void EnsureStyles()
@@ -584,10 +559,7 @@ namespace Elderholt
             panelText = Label(12, txt, false);
             headText = Label(12, Geo.Hex(0xf0d060), false);
             warnText = Label(12, Geo.Hex(0xe07840), false);
-            nameTagStyle = Label(12, Color.white, true);
             floatStyle = Label(16, Geo.Marker, true);
-            chatYou = Label(13, Geo.Hex(0xf0d060), false);
-            chatOther = Label(13, Geo.Hex(0x9fd08a), false);
         }
 
         static GUIStyle Label(int size, Color c, bool center)
@@ -617,9 +589,6 @@ namespace Elderholt
             DrawContextPanel();
             if (bagOpen) DrawBag();
             DrawWorldLabels();
-            DrawChat();
-
-            chatFocused = GUI.GetNameOfFocusedControl() == "chatInput";
         }
 
         Rect Panel(float x, float y, float w, float h)
@@ -636,21 +605,19 @@ namespace Elderholt
             Snapshot s = Snap;
             PlayerSnap me = Me();
             BagSnap bag = MyBag();
-            int youXp = 0, youSm = 0, fennXp = 0;
+            int youXp = 0, youSm = 0;
             if (s != null)
             {
                 s.xp.TryGetValue("you", out youXp);
                 s.smithXp.TryGetValue("you", out youSm);
-                s.xp.TryGetValue("fenn", out fennXp);
             }
             int band = me != null ? me.band : 0;
 
             Vector2 myPos = shown["you"];
-            Rect box = Panel(10, 10, 320, 196);
+            Rect box = Panel(10, 10, 320, 180);
             GUILayout.BeginArea(new Rect(box.x + 10, box.y + 8, box.width - 20, box.height - 12));
-            GUILayout.Label(Areas.Name(myPos.x, myPos.y, band).ToUpperInvariant() + "   tick " + g.tick + "   rtt " + g.rtt + "ms", headText);
+            GUILayout.Label(Areas.Name(myPos.x, myPos.y, band).ToUpperInvariant() + "   tick " + g.tick, headText);
             GUILayout.Label("Mining Lv " + XpCurve.Level(youXp) + " (" + youXp.ToString("N0") + ")   Smithing Lv " + XpCurve.Level(youSm) + " (" + youSm.ToString("N0") + ")", panelText);
-            GUILayout.Label("Fenn: Mining Lv " + XpCurve.Level(fennXp), panelText);
             if (bag != null)
                 GUILayout.Label("gold " + bag.gold + "g   ·   " + Items.Pretty(bag.pickaxe) + "   ·   bag (B)", panelText);
             if (band > 0 && s != null)
@@ -915,10 +882,6 @@ namespace Elderholt
 
         void DrawWorldLabels()
         {
-            foreach (KeyValuePair<string, Vector2> kv in shown)
-            {
-                DrawWorldLabel(new Vector3(kv.Value.x, 2.25f, kv.Value.y), kv.Key == "you" ? "You" : "Fenn", nameTagStyle);
-            }
             foreach (Floaty f in floats)
             {
                 Color prev = GUI.color;
@@ -946,28 +909,6 @@ namespace Elderholt
             Vector3 sp = cam.WorldToScreenPoint(worldPos);
             if (sp.z <= 0) return;
             GUI.Label(new Rect(sp.x - 80, Screen.height - sp.y - 12, 160, 24), text, style);
-        }
-
-        void DrawChat()
-        {
-            float y = Screen.height - 40 - chatLog.Count * 18;
-            for (int i = 0; i < chatLog.Count; i++)
-            {
-                ChatMsg m = chatLog[i];
-                GUI.Label(new Rect(12, y + i * 18, 420, 18), m.from + ": " + m.text, m.you ? chatYou : chatOther);
-            }
-
-            Event e = Event.current;
-            GUI.SetNextControlName("chatInput");
-            Rect input = new Rect(12, Screen.height - 30, 320, 22);
-            guiRects.Add(input);
-            chatDraft = GUI.TextField(input, chatDraft, 120);
-            if (e.type == UnityEngine.EventType.KeyDown && (e.keyCode == KeyCode.Return || e.keyCode == KeyCode.KeypadEnter))
-            {
-                string t = chatDraft.Trim();
-                if (t.Length > 0) { SendToServer(Intent.Chat(t)); chatDraft = ""; }
-                e.Use();
-            }
         }
 
         void Restart()

@@ -43,9 +43,7 @@ namespace Elderholt
             BuildMarker();
 
             Avatars["you"] = new Avatar("You", Geo.ShirtYou, root);
-            Avatars["fenn"] = new Avatar("Fenn", Geo.ShirtFenn, root);
             Avatars["you"].Place(0, 2, 0);
-            Avatars["fenn"].Place(-3, 4, 0);
         }
 
         void BuildTerrain()

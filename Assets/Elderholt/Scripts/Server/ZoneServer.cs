@@ -164,9 +164,8 @@ namespace Elderholt
                 for (int b = 0; b < Bands.Count && b < saved.instability.Length; b++)
                     instability[b] = saved.instability[b];
 
-            // Seed the two characters — every new character wakes in Bracken Cross.
+            // Seed the character — every new character wakes in Bracken Cross.
             SeedChar("you", 0, 2);
-            SeedChar("fenn", -3, 4);
             if (saved != null && saved.chr != null)
             {
                 foreach (CharSave cs in saved.chr)

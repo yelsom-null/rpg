@@ -42,14 +42,22 @@ namespace Elderholt
             return go.transform;
         }
 
+        float targetYawDeg;
+
         public void Place(float x, float z, float dir)
         {
             root.position = new Vector3(x, 0, z);
-            root.rotation = Quaternion.Euler(0, dir * Mathf.Rad2Deg, 0);
+            targetYawDeg = dir * Mathf.Rad2Deg;
         }
 
         public void Animate(string anim, float dt)
         {
+            // "Turn is free but visible": rotate toward heading at ~10 rad/s so
+            // direction changes read as animation, not teleport.
+            float cur = root.eulerAngles.y;
+            float next = Mathf.MoveTowardsAngle(cur, targetYawDeg, 10f * Mathf.Rad2Deg * dt);
+            root.rotation = Quaternion.Euler(0, next, 0);
+
             if (anim == "walk")
             {
                 bob += dt * 11f;
@@ -57,6 +65,23 @@ namespace Elderholt
                 legRX = -Mathf.Sin(bob) * 0.7f;
                 armLX = -Mathf.Sin(bob) * 0.5f;
                 armRX = Mathf.Sin(bob) * 0.5f;
+            }
+            else if (anim == "run")
+            {
+                // Faster stride, longer swing — the run lean sells the gait.
+                bob += dt * 17f;
+                legLX = Mathf.Sin(bob) * 1.0f;
+                legRX = -Mathf.Sin(bob) * 1.0f;
+                armLX = -Mathf.Sin(bob) * 0.8f;
+                armRX = Mathf.Sin(bob) * 0.8f;
+            }
+            else if (anim == "trudge")
+            {
+                // Heavy carry: slow, short steps, arms hanging.
+                bob += dt * 6f;
+                legLX = Mathf.Sin(bob) * 0.4f;
+                legRX = -Mathf.Sin(bob) * 0.4f;
+                armLX = -0.15f; armRX = -0.15f;
             }
             else if (anim == "mine")
             {

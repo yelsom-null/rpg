@@ -27,6 +27,7 @@ namespace Elderholt
         public int xp;         // Mining
         public int smithXp;    // Smithing
         public int gold;
+        public int energy = 100;
         public string pickaxe;
         public float x;
         public float z;

@@ -37,6 +37,7 @@ namespace Elderholt
         public int xp;            // Mining
         public int smithXp;       // Smithing
         public int gold;
+        public int energy = 100;  // run energy 0..100
         public string pickaxe = "pickaxe.worn";
         public float x, z;
         public int band;
@@ -52,8 +53,9 @@ namespace Elderholt
         public float x, z, dir;
         public int band;
         public string anim = "idle";
-        public bool hasTarget;
-        public float tx, tz;
+        public readonly List<Vector2Int> path = new List<Vector2Int>();   // tiles ahead
+        public bool runOn;         // the persistent run toggle
+        public bool forcedWalk;    // energy hit 0; walk until it recovers to 15
         public string mineId;
         public bool wedgeMode;     // heading to / holding the wedge, not swinging
         public string wedgeAt;     // node id currently wedged (in range, holding)
@@ -86,7 +88,11 @@ namespace Elderholt
     public partial class ZoneServer
     {
         public const float TickMs = 600f;
-        static readonly float Speed = 4.2f * TickMs / 1000f; // units per tick
+
+        // Gaits (movement doc): walk 1 tile/tick, run 2. Energy 0..100; run drain
+        // scales with carried weight; at 0 you're forced to walk until 15.
+        public const int CarryCapacity = 30;
+        const int RunRecoverAt = 15;
 
         // Bracken Cross station positions (surface, band 0). The world builder
         // mirrors these; the server owns them because reach checks are
@@ -170,6 +176,7 @@ namespace Elderholt
                         xp = cs.xp,
                         smithXp = cs.smithXp,
                         gold = cs.gold,
+                        energy = cs.energy,
                         pickaxe = string.IsNullOrEmpty(cs.pickaxe) ? "pickaxe.worn" : cs.pickaxe,
                         x = cs.x,
                         z = cs.z,
@@ -276,11 +283,10 @@ namespace Elderholt
                 if (m.type == IntentType.Move)
                 {
                     Vector2 c = ClampToBand(p.band, m.x, m.z);
-                    p.tx = c.x; p.tz = c.y;
-                    p.hasTarget = true;
                     p.mineId = null;
                     p.wedgeMode = false;
                     ClearHold(p);
+                    SetPath(p, c.x, c.y);
                 }
                 else if (m.type == IntentType.Interact || m.type == IntentType.Wedge)
                 {
@@ -289,20 +295,48 @@ namespace Elderholt
                     {
                         p.mineId = n.id;
                         p.wedgeMode = m.type == IntentType.Wedge;
-                        p.tx = n.x; p.tz = n.z;
-                        p.hasTarget = true;
                         ClearHold(p);
+                        // Path to the node's reach tile, not the node itself.
+                        SetPath(p, n.x, n.z);
+                        TrimPathToReach(p, n);
                     }
                 }
                 else if (m.type == IntentType.Abandon)
                 {
                     p.mineId = null;
                     p.wedgeMode = false;
-                    p.hasTarget = false;
+                    p.path.Clear();
                     ClearHold(p);
                 }
             }
             pending.Clear();
+        }
+
+        // Server-side A* over the tile grid; the client's marker is optimistic.
+        void SetPath(PlayerState p, float wx, float wz)
+        {
+            p.path.Clear();
+            Vector2Int start = TileMap.ToTile(p.band, p.x, p.z);
+            Vector2Int goal = TileMap.ToTile(p.band, wx, wz);
+            List<Vector2Int> found = TileMap.FindPath(p.band, start, goal, out bool truncated);
+            p.path.AddRange(found);
+            if (truncated && found.Count == 0)
+                Fail(p.id, "You can't reach that.");
+        }
+
+        // For interacts, stop at the first tile already within reach of the node.
+        void TrimPathToReach(PlayerState p, OreNode n)
+        {
+            for (int i = 0; i < p.path.Count; i++)
+            {
+                Vector2 w = TileMap.ToWorld(p.band, p.path[i]);
+                float dx = w.x - n.x, dz = w.y - n.z;
+                if (dx * dx + dz * dz <= (NodeReach - 0.4f) * (NodeReach - 0.4f))
+                {
+                    p.path.RemoveRange(i + 1, p.path.Count - i - 1);
+                    return;
+                }
+            }
         }
 
         // Anything that must stop when the player re-tasks: wedge hold, crafts.
@@ -338,6 +372,7 @@ namespace Elderholt
                     case IntentType.DeliverContract: DoDeliverContract(p, c); break;
                     case IntentType.VaultDeposit: DoVaultDeposit(p, c); break;
                     case IntentType.VaultWithdraw: DoVaultWithdraw(p, c); break;
+                    case IntentType.SetRun: p.runOn = m.qty > 0; break;
                 }
             }
             actions.Clear();
@@ -348,56 +383,91 @@ namespace Elderholt
             foreach (KeyValuePair<string, PlayerState> kv in players)
             {
                 PlayerState p = kv.Value;
+                CharacterRecord rec = chr[kv.Key];
                 OreNode node = p.mineId != null ? FindNode(p.mineId) : null;
-                if (node != null && node.ore <= 0) { p.mineId = null; p.wedgeMode = false; p.wedgeAt = null; p.hasTarget = false; }
+                if (node != null && node.ore <= 0) { p.mineId = null; p.wedgeMode = false; p.wedgeAt = null; p.path.Clear(); }
 
-                if (p.hasTarget)
+                if (p.path.Count > 0)
                 {
-                    float dx = p.tx - p.x, dz = p.tz - p.z;
-                    float d = Mathf.Sqrt(dx * dx + dz * dz);
-                    float stopAt = p.mineId != null ? 1.9f : 0.2f;
-                    if (d > stopAt)
+                    // Gait: walk 1 tile per tick, run 2 (if the toggle is on and
+                    // energy holds). Drain scales with carried weight; walking
+                    // and standing regenerate.
+                    bool running = p.runOn && !p.forcedWalk && rec.energy > 0;
+                    int steps = Mathf.Min(running ? 2 : 1, p.path.Count);
+
+                    float fromX = p.x, fromZ = p.z;
+                    Vector2 w = Vector2.zero;
+                    for (int s = 0; s < steps; s++)
                     {
-                        float stepLen = Mathf.Min(Speed, d - stopAt * 0.5f);
-                        p.x += (dx / d) * stepLen;
-                        p.z += (dz / d) * stepLen;
-                        p.dir = Mathf.Atan2(dx, dz);
-                        p.anim = "walk";
+                        w = TileMap.ToWorld(p.band, p.path[0]);
+                        p.path.RemoveAt(0);
+                    }
+                    p.x = w.x; p.z = w.y;
+                    p.dir = Mathf.Atan2(p.x - fromX, p.z - fromZ);
+
+                    float weightRatio = Mathf.Clamp01((float)CarryWeight(rec) / CarryCapacity);
+                    if (running && steps == 2)
+                    {
+                        rec.energy -= 1 + Mathf.RoundToInt(2f * weightRatio);
+                        if (rec.energy <= 0) { rec.energy = 0; p.forcedWalk = true; }
+                        p.anim = "run";
                     }
                     else
                     {
-                        p.hasTarget = false;
-                        if (p.mineId != null)
+                        rec.energy = Mathf.Min(100, rec.energy + 2);
+                        p.anim = weightRatio > 0.85f ? "trudge" : "walk";
+                    }
+
+                }
+                else
+                {
+                    rec.energy = Mathf.Min(100, rec.energy + 2);
+
+                    if (p.mineId != null && node != null)
+                    {
+                        float ddx = node.x - p.x, ddz = node.z - p.z;
+                        if (ddx * ddx + ddz * ddz > NodeReach * NodeReach)
                         {
-                            if (p.wedgeMode) { p.wedgeAt = p.mineId; p.anim = "wedge"; }
-                            else p.anim = "mine";
+                            // Path ended short of reach (blocked ring, cap).
+                            p.mineId = null;
+                            p.wedgeMode = false;
+                            p.anim = "idle";
+                            Fail(kv.Key, "You can't reach that.");
                         }
-                        else p.anim = "idle";
+                        else if (p.wedgeMode)
+                        {
+                            p.wedgeAt = p.mineId;
+                            p.anim = "wedge";
+                            p.dir = Mathf.Atan2(ddx, ddz);
+                        }
+                        else
+                        {
+                            p.anim = "mine";
+                            p.dir = Mathf.Atan2(ddx, ddz);
+                            // One swing per tick; the server arbitrates the shared
+                            // rock — two miners each take a swing until it runs out.
+                            if (node.ore > 0) DoSwing(kv.Key, p, rec, node);
+                        }
+                    }
+                    else if (p.smelt == null && p.forge == null)
+                    {
+                        p.anim = "idle";
                     }
                 }
-                else if (p.wedgeAt != null && node != null)
-                {
-                    // Holding the wedge: no swings, partner mines faster & safer.
-                    p.anim = "wedge";
-                    p.dir = Mathf.Atan2(node.x - p.x, node.z - p.z);
-                }
-                else if (p.mineId != null && node != null)
-                {
-                    p.anim = "mine";
-                    p.dir = Mathf.Atan2(node.x - p.x, node.z - p.z);
-                    // One swing per tick; the server arbitrates the shared rock —
-                    // two miners on one node each take a swing until it runs out.
-                    if (node.ore > 0) DoSwing(kv.Key, p, chr[kv.Key], node);
-                }
-                else if (p.smelt == null && p.forge == null)
-                {
-                    p.anim = "idle";
-                }
 
-                chr[kv.Key].x = p.x;
-                chr[kv.Key].z = p.z;
-                chr[kv.Key].band = p.band;
+                if (p.forcedWalk && rec.energy >= RunRecoverAt) p.forcedWalk = false;
+
+                rec.x = p.x;
+                rec.z = p.z;
+                rec.band = p.band;
             }
+        }
+
+        static int CarryWeight(CharacterRecord rec)
+        {
+            int total = 0;
+            foreach (KeyValuePair<string, int> it in rec.bag) total += it.Value;
+            return total;
         }
 
         void TickRespawns()
@@ -434,7 +504,12 @@ namespace Elderholt
             foreach (PlayerState p in players.Values)
             {
                 string anim = (p.smelt != null || p.forge != null) ? "smith" : p.anim;
-                snap.players.Add(new PlayerSnap { id = p.id, name = p.name, x = p.x, z = p.z, dir = p.dir, band = p.band, anim = anim, wedgeAt = p.wedgeAt });
+                snap.players.Add(new PlayerSnap
+                {
+                    id = p.id, name = p.name, x = p.x, z = p.z, dir = p.dir, band = p.band,
+                    anim = anim, wedgeAt = p.wedgeAt,
+                    energy = chr[p.id].energy, running = p.runOn && !p.forcedWalk,
+                });
             }
             foreach (OreNode n in nodes)
             {
@@ -529,7 +604,7 @@ namespace Elderholt
                     CharSave cs = new CharSave
                     {
                         id = kv.Key, xp = r.xp, smithXp = r.smithXp, gold = r.gold,
-                        pickaxe = r.pickaxe, x = r.x, z = r.z, band = r.band,
+                        energy = r.energy, pickaxe = r.pickaxe, x = r.x, z = r.z, band = r.band,
                     };
                     foreach (KeyValuePair<string, int> it in r.bag)
                         if (it.Value > 0) cs.bag.Add(new ItemSave { item = it.Key, qty = it.Value });

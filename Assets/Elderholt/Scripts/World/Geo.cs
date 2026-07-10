@@ -62,6 +62,31 @@ namespace Elderholt
             return m;
         }
 
+        // Occlusion fade ("fade, don't jump"): a cached translucent clone per
+        // source material, swapped onto renderers between camera and character.
+        static readonly Dictionary<Material, Material> fadeCache = new Dictionary<Material, Material>();
+
+        public static Material Faded(Material src)
+        {
+            if (src == null) return null;
+            if (fadeCache.TryGetValue(src, out Material m)) return m;
+            m = new Material(src);
+            m.SetFloat("_Mode", 3f);   // Standard shader: Transparent
+            m.SetOverrideTag("RenderType", "Transparent");
+            if (m.HasProperty("_SrcBlend")) m.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            if (m.HasProperty("_DstBlend")) m.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            if (m.HasProperty("_ZWrite")) m.SetInt("_ZWrite", 0);
+            m.DisableKeyword("_ALPHATEST_ON");
+            m.EnableKeyword("_ALPHABLEND_ON");
+            m.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+            m.renderQueue = 3000;
+            Color c = m.color;
+            c.a = 0.3f;
+            m.color = c;
+            fadeCache[src] = m;
+            return m;
+        }
+
         // Append reversed windings so a generated surface is visible from both
         // sides (guards blind-authored meshes against a back-facing winding).
         public static int[] DoubleSided(IList<int> tris)

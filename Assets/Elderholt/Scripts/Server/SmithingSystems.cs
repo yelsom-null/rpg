@@ -44,7 +44,7 @@ namespace Elderholt
             job.consumed.Add(new ItemStack { item = Items.Coal, qty = r.coal });
 
             p.smelt = job;
-            p.mineId = null; p.hasTarget = false; p.wedgeAt = null;
+            p.mineId = null; p.path.Clear(); p.wedgeAt = null;
         }
 
         int CountOres(CharacterRecord rec, string metal)
@@ -100,7 +100,7 @@ namespace Elderholt
             }
 
             p.forge = job;
-            p.mineId = null; p.hasTarget = false; p.wedgeAt = null;
+            p.mineId = null; p.path.Clear(); p.wedgeAt = null;
         }
 
         void DoPump(PlayerState p)

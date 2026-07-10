@@ -36,8 +36,19 @@ namespace Elderholt
         GameClient gameClient;
         BotClient botClient;
 
-        // camera orbit state (matches the prototype's yaw/pitch/dist)
-        float yaw = 0.6f, pitch = 0.42f, dist = 16f;
+        // camera orbit state (movement doc §6: yaw free, pitch 9°–69°, zoom 6–24 m)
+        float yaw = 0.6f, pitch = 0.42f, dist = 14f;
+        const float PitchMin = 0.16f, PitchMax = 1.2f;
+        bool compassReset;              // easing back to north/default
+        Vector3 camFocus;               // follow-eased look target
+        bool camFocusInit;
+        readonly Dictionary<Renderer, Material> fadedRenderers = new Dictionary<Renderer, Material>();
+
+        // movement input state
+        bool runPref;                   // the client's run toggle (server enforces energy)
+        float wasdTimer;
+        bool wasdWasHeld;
+        Renderer markerRend;
 
         float tickAccum;
         float pingAccum;
@@ -298,10 +309,33 @@ namespace Elderholt
 
         void UpdateCamera(float dt)
         {
+            // Compass reset: ease yaw to north, pitch/zoom to defaults.
+            if (compassReset)
+            {
+                yaw = Mathf.MoveTowardsAngle(yaw * Mathf.Rad2Deg, 0f, 300f * dt) * Mathf.Deg2Rad;
+                pitch = Mathf.MoveTowards(pitch, 0.42f, 1.6f * dt);
+                dist = Mathf.MoveTowards(dist, 14f, 30f * dt);
+                if (Mathf.Abs(Mathf.DeltaAngle(yaw * Mathf.Rad2Deg, 0f)) < 0.5f && Mathf.Abs(pitch - 0.42f) < 0.01f && Mathf.Abs(dist - 14f) < 0.1f)
+                    compassReset = false;
+            }
+
+            // Deep shafts clamp max zoom to tunnel scale.
+            float maxDist = shownBand > 0 ? 16f : 24f;
+            dist = Mathf.Clamp(dist, 6f, maxDist);
+
+            // Follow, don't weld: the rig chases the character with a ~0.15 s ease.
             Vector2 me = shown["you"];
-            float cx = me.x + dist * Mathf.Sin(yaw) * Mathf.Cos(pitch);
-            float cz = me.y + dist * Mathf.Cos(yaw) * Mathf.Cos(pitch);
-            Vector3 pos = new Vector3(cx, 1.2f + dist * Mathf.Sin(pitch), cz);
+            Vector3 focusTarget = new Vector3(me.x, 1.2f, me.y);
+            if (!camFocusInit) { camFocus = focusTarget; camFocusInit = true; }
+            float k = 1f - Mathf.Exp(-dt / 0.15f);
+            camFocus = Vector3.Lerp(camFocus, focusTarget, k);
+            // Band teleports shouldn't ease across the world.
+            if ((camFocus - focusTarget).sqrMagnitude > 900f) camFocus = focusTarget;
+
+            Vector3 pos = camFocus + new Vector3(
+                dist * Mathf.Sin(yaw) * Mathf.Cos(pitch),
+                dist * Mathf.Sin(pitch),
+                dist * Mathf.Cos(yaw) * Mathf.Cos(pitch));
 
             if (gameClient.shake > 0f)
             {
@@ -311,14 +345,62 @@ namespace Elderholt
             }
 
             cam.transform.position = pos;
-            cam.transform.LookAt(new Vector3(me.x, 1.2f, me.y));
+            cam.transform.LookAt(camFocus);
+
+            UpdateOcclusionFade(pos);
+        }
+
+        // Occlusion: fade, don't jump. Anything between camera and character goes
+        // translucent; the boom never auto-shortens.
+        void UpdateOcclusionFade(Vector3 camPos)
+        {
+            HashSet<Renderer> hitNow = new HashSet<Renderer>();
+            Vector3 dir = camPos - camFocus;
+            float len = dir.magnitude;
+            if (len > 1.2f)
+            {
+                Avatar self = world.Avatars.TryGetValue("you", out Avatar a) ? a : null;
+                foreach (RaycastHit h in Physics.RaycastAll(camFocus + dir.normalized * 0.5f, dir.normalized, len - 1.0f))
+                {
+                    if (h.collider.gameObject == world.Ground) continue;
+                    if (world.Walkable.Contains(h.collider.gameObject)) continue;
+                    if (self != null && h.collider.transform.IsChildOf(self.root)) continue;
+                    foreach (Renderer r in h.collider.GetComponentsInChildren<Renderer>())
+                        hitNow.Add(r);
+                }
+            }
+
+            foreach (Renderer r in hitNow)
+            {
+                if (r == null || fadedRenderers.ContainsKey(r)) continue;
+                fadedRenderers[r] = r.sharedMaterial;
+                r.sharedMaterial = Geo.Faded(fadedRenderers[r]);
+            }
+
+            List<Renderer> restore = null;
+            foreach (KeyValuePair<Renderer, Material> kv in fadedRenderers)
+            {
+                if (hitNow.Contains(kv.Key)) continue;
+                (restore = restore ?? new List<Renderer>()).Add(kv.Key);
+            }
+            if (restore != null)
+            {
+                foreach (Renderer r in restore)
+                {
+                    if (r != null) r.sharedMaterial = fadedRenderers[r];
+                    fadedRenderers.Remove(r);
+                }
+            }
         }
 
         // ---------- input -> intents ----------
         void HandleInput()
         {
             if (Input.mouseScrollDelta.y != 0f && !PointerOverUI())
-                dist = Mathf.Clamp(dist - Input.mouseScrollDelta.y * 1.5f, 6f, 34f);
+            {
+                compassReset = false;
+                dist = Mathf.Clamp(dist - Input.mouseScrollDelta.y * 1.5f, 6f, shownBand > 0 ? 16f : 24f);
+            }
 
             if (Input.GetMouseButtonDown(0))
             {
@@ -330,8 +412,9 @@ namespace Elderholt
                 if (dragging || Mathf.Abs(d.x) + Mathf.Abs(d.y) > 6f)
                 {
                     dragging = true;
+                    compassReset = false;
                     yaw -= d.x * 0.008f;
-                    pitch = Mathf.Clamp(pitch - d.y * 0.005f, 0.15f, 1.2f);
+                    pitch = Mathf.Clamp(pitch - d.y * 0.005f, PitchMin, PitchMax);
                     lastMouse = Input.mousePosition;
                 }
             }
@@ -345,20 +428,72 @@ namespace Elderholt
 
             if (chatFocused) return;   // typing — keys stay out of the world
 
+            // Arrow keys are the camera's (§6): ←/→ yaw, ↑/↓ pitch.
+            float dt = Time.deltaTime;
+            if (Input.GetKey(KeyCode.LeftArrow)) { yaw += 2.2f * dt; compassReset = false; }
+            if (Input.GetKey(KeyCode.RightArrow)) { yaw -= 2.2f * dt; compassReset = false; }
+            if (Input.GetKey(KeyCode.UpArrow)) { pitch = Mathf.Clamp(pitch + 1.1f * dt, PitchMin, PitchMax); compassReset = false; }
+            if (Input.GetKey(KeyCode.DownArrow)) { pitch = Mathf.Clamp(pitch - 1.1f * dt, PitchMin, PitchMax); compassReset = false; }
+
             PlayerSnap me = Me();
             ForgeSnap forge = MyForge();
+
+            HandleWasd(me, forge != null);
 
             if (Input.GetKeyDown(KeyCode.Space))
             {
                 if (forge != null) SendToServer(Intent.Hammer());
                 else if (me != null && me.anim == "mine") SendToServer(Intent.Strike());
             }
-            if (Input.GetKeyDown(KeyCode.W) && forge != null) SendToServer(Intent.Pump());
+            if (Input.GetKeyDown(KeyCode.F) && forge != null) SendToServer(Intent.Pump());
             if (Input.GetKeyDown(KeyCode.Q) && forge != null) SendToServer(Intent.Quench());
             if (Input.GetKeyDown(KeyCode.T) && me != null && me.band > 0) SendToServer(Intent.Shore());
             if (Input.GetKeyDown(KeyCode.B)) bagOpen = !bagOpen;
             if (Input.GetKeyDown(KeyCode.E)) TryBandMove(+1);
             if (Input.GetKeyDown(KeyCode.R)) TryBandMove(-1);
+            if (Input.GetKeyDown(KeyCode.X)) ToggleRun();
+        }
+
+        void ToggleRun()
+        {
+            runPref = !runPref;
+            SendToServer(Intent.SetRun(runPref));
+            gameClient.status = runPref ? "running when energy allows" : "walking (energy regenerates)";
+        }
+
+        // WASD is sugar over the same protocol (§4): held keys synthesize a
+        // camera-relative move() a few tiles ahead each half-second; release
+        // stops at the current tile. The server can't tell keyboard from mouse.
+        void HandleWasd(PlayerSnap me, bool forging)
+        {
+            if (me == null) return;
+            float h = (Input.GetKey(KeyCode.D) ? 1f : 0f) - (Input.GetKey(KeyCode.A) ? 1f : 0f);
+            float v = (Input.GetKey(KeyCode.W) ? 1f : 0f) - (Input.GetKey(KeyCode.S) ? 1f : 0f);
+            bool held = Mathf.Abs(h) + Mathf.Abs(v) > 0.5f;
+            if (forging && held) return;   // don't cancel a live forge by nudging keys
+
+            wasdTimer += Time.deltaTime;
+            if (held)
+            {
+                if (wasdWasHeld && wasdTimer < 0.45f) return;
+                wasdTimer = 0f;
+                wasdWasHeld = true;
+
+                // Camera-relative on the ground plane.
+                Vector2 fwd = new Vector2(-Mathf.Sin(yaw), -Mathf.Cos(yaw));
+                Vector2 right = new Vector2(fwd.y, -fwd.x);
+                Vector2 dir = (fwd * v + right * h).normalized;
+                Vector2 my = shown["you"];
+                Vector2 target = my + dir * 2.5f;
+                SendToServer(Intent.Move(target.x, target.y));
+                world.Marker.gameObject.SetActive(false);   // keyboard moves don't need the click marker
+            }
+            else if (wasdWasHeld)
+            {
+                wasdWasHeld = false;
+                Vector2 my = shown["you"];
+                SendToServer(Intent.Move(my.x, my.y));   // stop at the current tile
+            }
         }
 
         void TryBandMove(int delta)
@@ -395,7 +530,7 @@ namespace Elderholt
             {
                 mineTargetId = rock.id;
                 SendToServer(wedge ? Intent.Wedge(rock.id) : Intent.Interact(rock.id));
-                ShowMarker(world.RockGroups[rock.id].transform.position);
+                ShowMarker(world.RockGroups[rock.id].transform.position, true);
                 gameClient.status = wedge ? "bracing the wedge at " + rock.id : "intent sent: interact " + rock.id;
                 return;
             }
@@ -405,7 +540,7 @@ namespace Elderholt
             {
                 Vector3 sp = station.transform.position;
                 SendToServer(Intent.Move(sp.x + 1.4f, sp.z - 1.4f));
-                ShowMarker(sp);
+                ShowMarker(sp, false);
                 gameClient.status = station.kind == "entrance" ? "the shaft mouth — E to descend"
                     : station.kind == "shaft" ? "the ladder — E down, R up"
                     : station.kind == "vault" ? "walking to the Vault"
@@ -419,17 +554,20 @@ namespace Elderholt
                 if (hit.collider.gameObject == walk)
                 {
                     SendToServer(Intent.Move(hit.point.x, hit.point.z));
-                    ShowMarker(hit.point);
+                    ShowMarker(hit.point, false);
                     gameClient.status = "";
                     return;
                 }
             }
         }
 
-        void ShowMarker(Vector3 p)
+        // Yellow marker for ground, red for interact — "did my click land?"
+        void ShowMarker(Vector3 p, bool interact)
         {
             world.Marker.position = new Vector3(p.x, p.y + 0.1f, p.z);
             world.Marker.gameObject.SetActive(true);
+            if (markerRend == null) markerRend = world.Marker.GetComponent<Renderer>();
+            if (markerRend != null) markerRend.sharedMaterial.color = interact ? Geo.Hex(0xd05040) : Geo.Marker;
         }
 
         // ---------- UI ----------
@@ -508,7 +646,7 @@ namespace Elderholt
             int band = me != null ? me.band : 0;
 
             Vector2 myPos = shown["you"];
-            Rect box = Panel(10, 10, 320, 172);
+            Rect box = Panel(10, 10, 320, 196);
             GUILayout.BeginArea(new Rect(box.x + 10, box.y + 8, box.width - 20, box.height - 12));
             GUILayout.Label(Areas.Name(myPos.x, myPos.y, band).ToUpperInvariant() + "   tick " + g.tick + "   rtt " + g.rtt + "ms", headText);
             GUILayout.Label("Mining Lv " + XpCurve.Level(youXp) + " (" + youXp.ToString("N0") + ")   Smithing Lv " + XpCurve.Level(youSm) + " (" + youSm.ToString("N0") + ")", panelText);
@@ -525,9 +663,28 @@ namespace Elderholt
             GUILayout.Label(g.status, panelText);
             GUILayout.EndArea();
 
+            // Run energy orb (movement doc §5): toggle + a weight-aware meter.
+            int energy = me != null ? me.energy : 100;
+            Rect orb = new Rect(box.x + 10, box.y + box.height - 26, box.width - 20, 16);
+            GUI.DrawTexture(orb, barBg);
+            Color prevC = GUI.color;
+            GUI.color = energy > 30 ? Geo.Hex(0xe8c840) : Geo.Hex(0xd05040);
+            GUI.DrawTexture(new Rect(orb.x + 2, orb.y + 2, (orb.width - 4) * (energy / 100f), orb.height - 4), barFill);
+            GUI.color = prevC;
+            GUI.Label(new Rect(orb.x + 4, orb.y - 1, orb.width, 18), "energy " + energy, panelText);
+
             Rect btn = new Rect(box.x, box.y + box.height + 6, 130, 24);
             guiRects.Add(btn);
             if (GUI.Button(btn, "Restart server")) Restart();
+
+            Rect runBtn = new Rect(box.x + 136, box.y + box.height + 6, 100, 24);
+            guiRects.Add(runBtn);
+            if (GUI.Button(runBtn, runPref ? "Run: ON (X)" : "Run: off (X)")) ToggleRun();
+
+            // Compass (§6): eases yaw to north, pitch/zoom to defaults.
+            Rect compass = new Rect(Screen.width - 46, 10, 36, 36);
+            guiRects.Add(compass);
+            if (GUI.Button(compass, "N")) compassReset = true;
 
             DrawStrikeIndicator(me);
         }
@@ -665,7 +822,7 @@ namespace Elderholt
             }
             else
             {
-                if (GUI.Button(new Rect(r.x + 10, y, (r.width - 30) / 2f, 22), "Pump (W)"))
+                if (GUI.Button(new Rect(r.x + 10, y, (r.width - 30) / 2f, 22), "Pump (F)"))
                     SendToServer(Intent.Pump());
                 if (GUI.Button(new Rect(r.x + 20 + (r.width - 30) / 2f, y, (r.width - 30) / 2f, 22), "Hammer (Space)"))
                     SendToServer(Intent.Hammer());
@@ -741,7 +898,7 @@ namespace Elderholt
             BagSnap bag = MyBag();
             int rows = bag != null ? Mathf.Max(1, bag.items.Count) : 1;
             float h = 40 + rows * 18;
-            Rect r = Panel(Screen.width - 250, 10, 240, h);
+            Rect r = Panel(Screen.width - 250, 54, 240, h);
             GUI.Label(new Rect(r.x + 10, r.y + 6, r.width - 20, 20), "BAG — " + (bag != null ? bag.gold + "g" : ""), headText);
             float y = r.y + 28;
             if (bag == null || bag.items.Count == 0)
@@ -818,6 +975,7 @@ namespace Elderholt
             server.Save();
             server = new ZoneServer();
             ConnectClients();
+            if (runPref) SendToServer(Intent.SetRun(true));   // re-sync the toggle
             gameClient.status = "Server restarted — characters, bags, gold and rocks reloaded.";
         }
 

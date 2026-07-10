@@ -219,7 +219,7 @@ namespace Elderholt
             (float x, float z) = Bands.Spawn(band);
             p.band = band;
             p.x = x; p.z = z;
-            p.hasTarget = false;
+            p.path.Clear();
             p.mineId = null;
             p.wedgeMode = false;
             p.wedgeAt = null;

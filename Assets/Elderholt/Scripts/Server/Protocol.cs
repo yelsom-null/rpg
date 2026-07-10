@@ -34,6 +34,8 @@ namespace Elderholt
         // Bracken Cross — the Vault (bank; banked goods survive cave-ins)
         VaultDeposit,   // move all valuables from bag to vault
         VaultWithdraw,  // move everything from vault back to bag
+        // Movement doc — run is a persistent server-side toggle (qty 1/0)
+        SetRun,
     }
 
     // Client -> server. One pending movement-class intent per player; a newer
@@ -71,6 +73,7 @@ namespace Elderholt
         public static Intent DeliverContract() => new Intent { type = IntentType.DeliverContract };
         public static Intent VaultDeposit() => new Intent { type = IntentType.VaultDeposit };
         public static Intent VaultWithdraw() => new Intent { type = IntentType.VaultWithdraw };
+        public static Intent SetRun(bool on) => new Intent { type = IntentType.SetRun, qty = on ? 1 : 0 };
     }
 
     public enum EventType
@@ -119,8 +122,10 @@ namespace Elderholt
         public string name;
         public float x, z, dir;
         public int band;
-        public string anim;    // idle | walk | mine | wedge | smith
+        public string anim;    // idle | walk | run | trudge | mine | wedge | smith
         public string wedgeAt; // node id the player is holding a wedge at (or null)
+        public int energy;     // run energy 0..100
+        public bool running;   // the persistent run toggle, as the server sees it
     }
 
     public class NodeSnap

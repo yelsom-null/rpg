@@ -33,23 +33,37 @@ architecture honest: an authoritative "server" the clients never mutate, driven 
 
 ## Controls
 
-- **Left-click ground** → walk (gold marker pulses at the target).
-- **Left-click an ore rock** → walk into range and mine.
+Movement (per the Movement & Camera doc — the server thinks in 1 m tiles,
+A*-pathing every step; the client renders continuous motion on top):
+
+- **Left-click ground** → walk there (gold marker). Clicks through walls path
+  around them; unreachable spots walk as close as possible ("You can't reach
+  that."). Paths cap at 25 tiles — long journeys are re-clicks.
+- **WASD** → camera-relative movement, sugar over the same move intents (the
+  server can't tell keyboard from mouse). Release to stop.
+- **X** → toggle **Run**: 2 tiles/tick instead of 1, drains the energy orb —
+  faster the heavier your bag. At 0 you're forced to walk until it recovers.
+  Walking and standing regenerate.
+- **Left-click an ore rock** → path into reach and mine (red marker).
 - **Right-click an ore rock** → brace the **wedge** there (your partner mines
   faster and safer; you earn support XP per partner swing).
 - **Space** while mining → **aimed strike** at the weak point. Watch the indicator:
   hit the window for pristine ore; miss and the ore crumbles to rubble (until the
   Steady Hands perk at Mining 5).
 - **T** underground → **shore** the gallery with a timber (buy timber at the stall).
-- **E / R** at the mine entrance or a shaft ladder → descend / climb up.
-- **B** → bag. **Drag** → orbit camera. **Scroll** → zoom. **Enter** → chat.
-- At the **anvil** while forging: **W** pump the bellows, **Space** hammer,
+- **E / R** at the shaft mouth or a ladder → descend / climb up.
+- **B** → bag. **Enter** → chat.
+- **Camera:** drag to orbit, **←/→ ↑/↓** yaw/pitch (pitch clamped 9°–69°),
+  scroll to zoom (6–24 m, tighter in the shafts), **N compass button** eases back
+  to north. The rig follows with a soft ease; anything between the camera and
+  you fades translucent rather than the boom jumping.
+- At the **anvil** while forging: **F** pump the bellows, **Space** hammer,
   **Q** quench. Hammer in the orange; white heat burns the billet; quench the
   instant it's done or the piece cracks.
-- Walk near the **stall / furnace / anvil / notice board** and its panel appears
-  bottom-right.
+- Walk near the **trade post / furnace / anvil / guildhall board / Vault** and
+  its panel appears bottom-right.
 - **Restart server** (top-left) → reboots the zone from its last save: XP, gold,
-  bag, pickaxe, band, rocks and instability all come back.
+  energy, bag, vault, pickaxe, band, rocks and instability all come back.
 
 ## The Phase 2 loop
 

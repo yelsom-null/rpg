@@ -57,6 +57,12 @@ namespace Elderholt
         string mineTargetId;    // node we last sent interact for (strike indicator)
         int shownBand;          // band whose ambience is currently applied
 
+        // The product shell around the sim: title on boot, Esc pauses. The
+        // world renders behind both; ticks only advance while Playing.
+        enum ShellState { Title, Playing, Paused }
+        ShellState shell = ShellState.Title;
+        float volume;
+
         readonly Dictionary<string, Vector2> shown = new Dictionary<string, Vector2>
         {
             { "you", new Vector2(0, 2) },
@@ -83,6 +89,8 @@ namespace Elderholt
         void Awake()
         {
             SetupEnvironment();
+            volume = PlayerPrefs.GetFloat("deepseam.volume", 1f);
+            AudioListener.volume = volume;
             server = new ZoneServer();
             world = new ThornmereWorld(server);
             ConnectClients();
@@ -188,16 +196,30 @@ namespace Elderholt
         {
             float dt = Mathf.Min(Time.deltaTime, 0.05f);
 
-            RunScheduler();
-
-            tickAccum += Time.deltaTime * 1000f;
-            while (tickAccum >= ZoneServer.TickMs)
+            if (Input.GetKeyDown(KeyCode.Escape))
             {
-                tickAccum -= ZoneServer.TickMs;
-                server.Step();
+                if (shell == ShellState.Playing) shell = ShellState.Paused;
+                else if (shell == ShellState.Paused) shell = ShellState.Playing;
             }
 
-            HandleInput();
+            if (shell == ShellState.Playing)
+            {
+                RunScheduler();
+
+                tickAccum += Time.deltaTime * 1000f;
+                while (tickAccum >= ZoneServer.TickMs)
+                {
+                    tickAccum -= ZoneServer.TickMs;
+                    server.Step();
+                }
+
+                HandleInput();
+            }
+            else if (shell == ShellState.Title)
+            {
+                yaw += 0.05f * dt;   // slow idle orbit behind the title
+            }
+
             RenderInterpolated(dt);
             UpdateFloats(dt);
             UpdateAtmosphere();
@@ -420,11 +442,11 @@ namespace Elderholt
 
             if (Input.GetKeyDown(KeyCode.Space))
             {
-                if (forge != null) SendToServer(Intent.Hammer());
+                if (forge != null) { SendToServer(Intent.Hammer()); Sfx.Play("hammer"); }
                 else if (me != null && me.anim == "mine") SendToServer(Intent.Strike());
             }
-            if (Input.GetKeyDown(KeyCode.F) && forge != null) SendToServer(Intent.Pump());
-            if (Input.GetKeyDown(KeyCode.Q) && forge != null) SendToServer(Intent.Quench());
+            if (Input.GetKeyDown(KeyCode.F) && forge != null) { SendToServer(Intent.Pump()); Sfx.Play("smelt", 0.6f); }
+            if (Input.GetKeyDown(KeyCode.Q) && forge != null) { SendToServer(Intent.Quench()); Sfx.Play("quench"); }
             if (Input.GetKeyDown(KeyCode.T) && me != null && me.band > 0) SendToServer(Intent.Shore());
             if (Input.GetKeyDown(KeyCode.B)) bagOpen = !bagOpen;
             if (Input.GetKeyDown(KeyCode.E)) TryBandMove(+1);
@@ -549,7 +571,7 @@ namespace Elderholt
         }
 
         // ---------- UI ----------
-        GUIStyle panelText, floatStyle, warnText, headText;
+        GUIStyle panelText, floatStyle, warnText, headText, titleStyle, taglineStyle;
         Texture2D panelBg, barBg, barFill;
 
         void EnsureStyles()
@@ -563,6 +585,8 @@ namespace Elderholt
             headText = Label(12, Geo.Hex(0xf0d060), false);
             warnText = Label(12, Geo.Hex(0xe07840), false);
             floatStyle = Label(16, Geo.Marker, true);
+            titleStyle = Label(46, Geo.Hex(0xf0d060), true);
+            taglineStyle = Label(14, txt, true);
         }
 
         static GUIStyle Label(int size, Color c, bool center)
@@ -588,10 +612,119 @@ namespace Elderholt
             EnsureStyles();
             guiRects.Clear();
 
+            if (shell == ShellState.Title) { DrawTitle(); return; }
+
             DrawHud();
             DrawContextPanel();
             if (bagOpen) DrawBag();
             DrawWorldLabels();
+            if (gameClient.justWon && shell == ShellState.Playing) DrawVictory();
+            if (shell == ShellState.Paused) DrawPause();
+        }
+
+        // A GUI.Button that also blocks world clicks under it.
+        bool Button(float x, float y, float w, float h, string label)
+        {
+            Rect r = new Rect(x, y, w, h);
+            guiRects.Add(r);
+            return GUI.Button(r, label);
+        }
+
+        void DrawTitle()
+        {
+            float cx = Screen.width / 2f;
+            GUI.Label(new Rect(cx - 400, Screen.height * 0.20f, 800, 60), "DEEPSEAM", titleStyle);
+            GUI.Label(new Rect(cx - 400, Screen.height * 0.20f + 60, 800, 24),
+                "Dig deep. Sell everything. Don't get buried.", taglineStyle);
+
+            const float bw = 260f, bh = 32f;
+            float y = Screen.height * 0.46f;
+            bool hasSave = ZoneServer.SaveExists;
+            if (hasSave && Button(cx - bw / 2f, y, bw, bh, "Continue")) shell = ShellState.Playing;
+            if (hasSave) y += 40f;
+            if (Button(cx - bw / 2f, y, bw, bh, hasSave ? "New mountain" : "Begin"))
+            {
+                if (hasSave) NewGame();
+                shell = ShellState.Playing;
+            }
+            y += 40f;
+            DrawSettingsRow(cx - bw / 2f, y, bw);
+            y += 40f;
+            if (Button(cx - bw / 2f, y, bw, bh, "Quit")) Application.Quit();
+
+            GUI.Label(new Rect(cx - 400, Screen.height - 30, 800, 20),
+                "every new mountain is seeded fresh — no two dig the same", taglineStyle);
+        }
+
+        void DrawPause()
+        {
+            const float w = 320f, h = 226f;
+            Rect r = Panel(Screen.width / 2f - w / 2f, Screen.height / 2f - h / 2f, w, h);
+            GUI.Label(new Rect(r.x + 16, r.y + 12, w - 32, 22), "PAUSED", headText);
+            float y = r.y + 44f;
+            if (Button(r.x + 16, y, w - 32, 30, "Resume (Esc)")) shell = ShellState.Playing;
+            y += 38f;
+            DrawSettingsRow(r.x + 16, y, w - 32);
+            y += 38f;
+            if (Button(r.x + 16, y, w - 32, 30, "Save & quit to title")) { server.Save(); shell = ShellState.Title; }
+            y += 38f;
+            if (Button(r.x + 16, y, w - 32, 30, "Quit to desktop")) { server.Save(); Application.Quit(); }
+        }
+
+        // Fullscreen toggle + volume slider, shared by title and pause.
+        void DrawSettingsRow(float x, float y, float w)
+        {
+            guiRects.Add(new Rect(x, y, w, 32));
+            bool fs = GUI.Toggle(new Rect(x, y + 6, 110, 20), Screen.fullScreen, " fullscreen");
+            if (fs != Screen.fullScreen) Screen.fullScreen = fs;
+            GUI.Label(new Rect(x + 118, y + 4, 36, 20), "vol", panelText);
+            float v = GUI.HorizontalSlider(new Rect(x + 152, y + 12, w - 152, 12), volume, 0f, 1f);
+            if (!Mathf.Approximately(v, volume))
+            {
+                volume = v;
+                AudioListener.volume = v;
+                PlayerPrefs.SetFloat("deepseam.volume", v);
+            }
+        }
+
+        // The win screen: shown once when the Heart comes free. Endless mode is
+        // just dismissing it; New mountain wipes the save and rolls a new seed.
+        void DrawVictory()
+        {
+            const float w = 460f, h = 190f;
+            Rect r = Panel(Screen.width / 2f - w / 2f, Screen.height / 2f - h / 2f, w, h);
+            GUI.Label(new Rect(r.x + 20, r.y + 16, w - 40, 24), "THE HEART OF THE MOUNTAIN IS YOURS", headText);
+            GUI.Label(new Rect(r.x + 20, r.y + 46, w - 40, 70),
+                "Ten bands down, past the creaks and the cave-ins, and the mountain\n" +
+                "gave up its heart. Bank it at the Vault — it outlasts any bag.\n" +
+                "The deeps stay open: keep digging, or start a new mountain.", panelText);
+            if (GUI.Button(new Rect(r.x + 20, r.y + h - 48, 195, 28), "Keep digging (endless)"))
+                gameClient.justWon = false;
+            if (GUI.Button(new Rect(r.x + w - 215, r.y + h - 48, 195, 28), "New mountain (new game)"))
+                NewGame();
+        }
+
+        // Wipe the save, roll a new seed, rebuild the world in place.
+        void NewGame()
+        {
+            ZoneServer.DeleteSave();
+            world.Destroy();
+            fadedRenderers.Clear();
+            markerRend = null;
+            floats.Clear();
+            mineTargetId = null;
+            bagOpen = false;
+            runPref = false;
+
+            server = new ZoneServer();
+            world = new ThornmereWorld(server);
+            ConnectClients();
+
+            shown["you"] = new Vector2(0, 2);
+            camFocusInit = false;
+            shownBand = 0;
+            ApplySurfaceAtmosphere();
+            gameClient.status = "a new mountain — the camp fires are lit";
         }
 
         Rect Panel(float x, float y, float w, float h)
@@ -623,6 +756,8 @@ namespace Elderholt
             GUILayout.Label("Mining Lv " + XpCurve.Level(youXp) + " (" + youXp.ToString("N0") + ")   Smithing Lv " + XpCurve.Level(youSm) + " (" + youSm.ToString("N0") + ")", panelText);
             if (bag != null)
                 GUILayout.Label("gold " + bag.gold + "g   ·   " + Items.Pretty(bag.pickaxe) + "   ·   bag (B)", panelText);
+            if (me != null && me.won)
+                GUILayout.Label("the Heart is yours — endless deeps below", headText);
             if (band > 0 && s != null)
             {
                 int inst = s.instability[band];
@@ -643,11 +778,7 @@ namespace Elderholt
             GUI.color = prevC;
             GUI.Label(new Rect(orb.x + 4, orb.y - 1, orb.width, 18), "energy " + energy, panelText);
 
-            Rect btn = new Rect(box.x, box.y + box.height + 6, 130, 24);
-            guiRects.Add(btn);
-            if (GUI.Button(btn, "Restart server")) Restart();
-
-            Rect runBtn = new Rect(box.x + 136, box.y + box.height + 6, 100, 24);
+            Rect runBtn = new Rect(box.x, box.y + box.height + 6, 100, 24);
             guiRects.Add(runBtn);
             if (GUI.Button(runBtn, runPref ? "Run: ON (X)" : "Run: off (X)")) ToggleRun();
 
@@ -912,15 +1043,6 @@ namespace Elderholt
             Vector3 sp = cam.WorldToScreenPoint(worldPos);
             if (sp.z <= 0) return;
             GUI.Label(new Rect(sp.x - 80, Screen.height - sp.y - 12, 160, 24), text, style);
-        }
-
-        void Restart()
-        {
-            server.Save();
-            server = new ZoneServer();
-            ConnectClients();
-            if (runPref) SendToServer(Intent.SetRun(true));   // re-sync the toggle
-            gameClient.status = "Server restarted — characters, bags, gold and rocks reloaded.";
         }
 
         void OnApplicationQuit()

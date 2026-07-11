@@ -689,6 +689,23 @@ namespace Elderholt
             }
         }
 
+        // Whether a mountain is already underway (the title screen's Continue).
+        public static bool SaveExists => File.Exists(SavePath);
+
+        // New-mountain flow: the save (and its seed) goes; the next ZoneServer
+        // rolls a fresh world.
+        public static void DeleteSave()
+        {
+            try
+            {
+                if (File.Exists(SavePath)) File.Delete(SavePath);
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning("[Deepseam] delete save failed: " + e.Message);
+            }
+        }
+
         static SaveData Load()
         {
             try

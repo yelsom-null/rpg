@@ -704,5 +704,11 @@ namespace Elderholt
             if (SeamGlints.TryGetValue(id, out GameObject go) && go.activeSelf != on)
                 go.SetActive(on);
         }
+
+        // Tear the whole zone down (new-mountain flow rebuilds from a new server).
+        public void Destroy()
+        {
+            if (root != null) Object.Destroy(root.gameObject);
+        }
     }
 }

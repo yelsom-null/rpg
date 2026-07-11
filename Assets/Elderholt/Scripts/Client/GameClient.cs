@@ -39,6 +39,10 @@ namespace Elderholt
         // Camera shake seconds remaining (cave-ins).
         public float shake;
 
+        // Set when the Victory event lands this session; the host shows the win
+        // screen once and clears it. (The persistent flag lives in PlayerSnap.won.)
+        public bool justWon;
+
         public GameClient(IClientHost host, string id)
         {
             this.host = host;
@@ -59,6 +63,7 @@ namespace Elderholt
                         break;
                     case EventType.LevelUp:
                         status = ev.name + " — level " + ev.lvl + "!";
+                        if (ev.who == id) Sfx.Play("level");
                         break;
                     case EventType.Saved:
                         savedAt = ev.at;
@@ -75,6 +80,7 @@ namespace Elderholt
                         {
                             PendingNoteFloats.Enqueue(ev);
                             if (ev.text != null) status = ev.text;
+                            Sfx.Play(ev.text != null ? "pristine" : "ore");
                         }
                         break;
                     case EventType.Prospected:
@@ -86,40 +92,43 @@ namespace Elderholt
                     case EventType.Creak:
                         creakTell = ev.text;
                         status = ev.text;
+                        Sfx.Play("creak");
                         break;
                     case EventType.CaveIn:
                         status = "CAVE-IN! " + ev.text;
                         shake = 1.2f;
+                        Sfx.Play("cavein");
                         break;
                     case EventType.Died:
-                        if (ev.who == id) { status = ev.text; shake = 1.6f; }
+                        if (ev.who == id) { status = ev.text; shake = 1.6f; Sfx.Play("died"); }
                         break;
                     case EventType.Victory:
-                        if (ev.who == id) { status = ev.text; }
+                        if (ev.who == id) { status = ev.text; justWon = true; Sfx.Play("victory"); }
                         break;
                     case EventType.Shored:
-                        if (ev.who == id) status = "shored up — the timbers hold (instability " + ev.amount + ")";
+                        if (ev.who == id) { status = "shored up — the timbers hold (instability " + ev.amount + ")"; Sfx.Play("shore"); }
                         break;
                     case EventType.BandMoved:
                         if (ev.who == id)
                         {
                             status = "— " + Bands.All[ev.band].name + ": " + Bands.All[ev.band].ambience + " —";
                             creakTell = "";
+                            Sfx.Play("descend");
                         }
                         break;
                     case EventType.Smelted:
-                        if (ev.who == id) { status = "the furnace yields a " + Items.Pretty(ev.item); PendingNoteFloats.Enqueue(ev); }
+                        if (ev.who == id) { status = "the furnace yields a " + Items.Pretty(ev.item); PendingNoteFloats.Enqueue(ev); Sfx.Play("smelt"); }
                         break;
                     case EventType.ForgeTick:
                         break;   // read from snapshot.forges, not events
                     case EventType.Forged:
-                        if (ev.who == id) { status = ev.text + "  (" + Items.Pretty(ev.item) + ")"; PendingNoteFloats.Enqueue(ev); }
+                        if (ev.who == id) { status = ev.text + "  (" + Items.Pretty(ev.item) + ")"; PendingNoteFloats.Enqueue(ev); Sfx.Play("pristine"); }
                         break;
                     case EventType.ForgeFail:
-                        if (ev.who == id) status = ev.text;
+                        if (ev.who == id) { status = ev.text; Sfx.Play("fail", 0.7f); }
                         break;
                     case EventType.Traded:
-                        if (ev.who == id) status = ev.text;
+                        if (ev.who == id) { status = ev.text; Sfx.Play("coin"); }
                         break;
                     case EventType.Contract:
                         if (ev.who == id) status = ev.text;

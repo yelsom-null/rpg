@@ -625,13 +625,17 @@ namespace Elderholt
                 grp.SetParent(root, false);
                 grp.localPosition = new Vector3(n.x, 0, n.z);
 
+                bool heart = n.metal == Items.HeartMetal;
+
                 // KayKit boulder (per metal, for variety) or the procedural rock.
-                string rockPath = n.metal == "tin" ? "KayKit/Nature/rock_single_D"
+                // The Heart is a bigger boulder with a golden glow of its own.
+                string rockPath = heart ? "KayKit/Nature/rock_single_A"
+                    : n.metal == "tin" ? "KayKit/Nature/rock_single_D"
                     : n.metal == "iron" ? "KayKit/Nature/rock_single_E"
                     : "KayKit/Nature/rock_single_C";
-                if (TryModel(rockPath, grp, Vector3.zero, 2.2f, -1f) == null)
+                if (TryModel(rockPath, grp, Vector3.zero, heart ? 3.4f : 2.2f, -1f) == null)
                 {
-                    GameObject rock = Geo.MeshObject("Rock", Geo.Icosahedron(1.0f), Geo.Rock, grp);
+                    GameObject rock = Geo.MeshObject("Rock", Geo.Icosahedron(heart ? 1.6f : 1.0f), Geo.Rock, grp);
                     rock.transform.localScale = new Vector3(1f, 0.7f, 1f);
                     rock.transform.localPosition = new Vector3(0, 0.5f, 0);
                     rock.transform.localRotation = Quaternion.Euler(0, Random.value * 180f, 0);
@@ -639,14 +643,26 @@ namespace Elderholt
 
                 // The exposed vein: a metal nugget from Resource Bits (tin reads
                 // as silver), or the old glint icosahedron as fallback.
-                string nugget = n.metal == "tin" ? "KayKit/Resource/Silver_Nugget_Medium"
+                string nugget = heart ? "KayKit/Resource/Gold_Nugget_Large"
+                    : n.metal == "tin" ? "KayKit/Resource/Silver_Nugget_Medium"
                     : n.metal == "iron" ? "KayKit/Resource/Iron_Nugget_Medium"
                     : "KayKit/Resource/Copper_Nugget_Medium";
-                if (TryModel(nugget, grp, new Vector3(0.4f, 0.8f, 0.3f), 1.2f, -1f) == null)
+                if (TryModel(nugget, grp, new Vector3(0.4f, heart ? 1.4f : 0.8f, 0.3f), heart ? 1.8f : 1.2f, -1f) == null)
                 {
                     Color glintCol = n.metal == "tin" ? Geo.GlintTin : n.metal == "iron" ? Geo.GlintIron : Geo.Glint;
-                    GameObject glint = Geo.MeshObject("Glint", Geo.Icosahedron(0.22f), glintCol, grp);
-                    glint.transform.localPosition = new Vector3(0.4f, 0.85f, 0.3f);
+                    GameObject glint = Geo.MeshObject("Glint", Geo.Icosahedron(heart ? 0.5f : 0.22f), glintCol, grp);
+                    glint.transform.localPosition = new Vector3(0.4f, heart ? 1.5f : 0.85f, 0.3f);
+                }
+
+                if (heart)
+                {
+                    Light pulse = new GameObject("HeartGlow").AddComponent<Light>();
+                    pulse.transform.SetParent(grp, false);
+                    pulse.transform.localPosition = new Vector3(0, 2.2f, 0);
+                    pulse.type = LightType.Point;
+                    pulse.color = Geo.Glint;
+                    pulse.range = 14f;
+                    pulse.intensity = 2.2f;
                 }
 
                 // Seam hint: gold glitter shown when the seam runs to this rock.

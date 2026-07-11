@@ -16,6 +16,8 @@ namespace Elderholt
         public const string Timber = "timber";
         public const string Coal = "coal";
         public const string Gem = "gem";
+        public const string Heart = "heart";          // the win trophy (band 10)
+        public const string HeartMetal = "heart";     // OreNode.metal of the win object
 
         public static readonly string[] Grades = { "poor", "pure", "pristine" };
         public static readonly string[] GradeLabel = { "poor", "pure", "PRISTINE" };
@@ -78,6 +80,7 @@ namespace Elderholt
             else if (parts[0] == "bar" && parts.Length == 3) s = parts[2] + " " + parts[1] + " bar";
             else if (parts[0] == "pickaxe" && parts.Length == 2) s = parts[1] + " pickaxe";
             else if (parts[0] == "blade" && parts.Length == 2) s = parts[1] + " blade";
+            else if (key == Heart) s = "the Mountain's Heart";
             else s = key;
             return maker != null ? s + " ⚔ " + maker : s;
         }
@@ -137,8 +140,10 @@ namespace Elderholt
 
     // ---------------------------------------------------------------------------
     //  Depth bands — "named depth bands, each with own ores, hazards, ambience".
-    //  Band 0 is the surface hillside; bands 1-2 are underground chambers the
-    //  renderer builds at a world offset so one coordinate space serves all.
+    //  Band 0 is the surface; bands 1-10 are underground chambers the renderer
+    //  builds at a world offset so one coordinate space serves all. Deeper =
+    //  richer ore and faster instability growth; band 10 holds the Heart of the
+    //  Mountain, the run's win object.
     // ---------------------------------------------------------------------------
     public class BandDef
     {
@@ -159,10 +164,26 @@ namespace Elderholt
             new BandDef { name = "Greyroot Gallery", originX = 220, originZ = 0, radius = 16f,
                           tempo = 5, swingInstability = 1.3f, ambience = "drips echo off grey stone" },
             new BandDef { name = "Deepseam Hollow", originX = 440, originZ = 0, radius = 14f,
-                          tempo = 6, swingInstability = 2.2f, ambience = "the dark presses in; timber groans" },
+                          tempo = 5, swingInstability = 1.8f, ambience = "the dark presses in; timber groans" },
+            new BandDef { name = "Blackwater Sump", originX = 660, originZ = 0, radius = 14f,
+                          tempo = 6, swingInstability = 2.3f, ambience = "cold water sheets down the walls" },
+            new BandDef { name = "The Cinder Shelf", originX = 880, originZ = 0, radius = 13f,
+                          tempo = 6, swingInstability = 2.8f, ambience = "warm ash drifts from cracks in the floor" },
+            new BandDef { name = "Old Kings' Road", originX = 1100, originZ = 0, radius = 13f,
+                          tempo = 7, swingInstability = 3.3f, ambience = "dressed stone — someone mined here long ago" },
+            new BandDef { name = "Echo Vaults", originX = 1320, originZ = 0, radius = 12f,
+                          tempo = 7, swingInstability = 3.8f, ambience = "every pick-strike answers itself twice" },
+            new BandDef { name = "The Hungry Dark", originX = 1540, originZ = 0, radius = 12f,
+                          tempo = 7, swingInstability = 4.4f, ambience = "your torchlight ends a pace from your boots" },
+            new BandDef { name = "Molten Gutters", originX = 1760, originZ = 0, radius = 11f,
+                          tempo = 8, swingInstability = 5.0f, ambience = "the rock is warm; the air tastes of iron" },
+            new BandDef { name = "Whisper Gap", originX = 1980, originZ = 0, radius = 11f,
+                          tempo = 8, swingInstability = 5.6f, ambience = "the mountain mutters — it knows you're here" },
+            new BandDef { name = "Heart of the Mountain", originX = 2200, originZ = 0, radius = 9f,
+                          tempo = 6, swingInstability = 6.5f, ambience = "a deep gold pulse lights the chamber walls" },
         };
 
-        public const int Count = 3;
+        public const int Count = 11;
 
         // Where a player stands right after moving between bands.
         public static (float x, float z) Spawn(int band)

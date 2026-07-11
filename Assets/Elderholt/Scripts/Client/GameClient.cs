@@ -91,6 +91,12 @@ namespace Elderholt
                         status = "CAVE-IN! " + ev.text;
                         shake = 1.2f;
                         break;
+                    case EventType.Died:
+                        if (ev.who == id) { status = ev.text; shake = 1.6f; }
+                        break;
+                    case EventType.Victory:
+                        if (ev.who == id) { status = ev.text; }
+                        break;
                     case EventType.Shored:
                         if (ev.who == id) status = "shored up — the timbers hold (instability " + ev.amount + ")";
                         break;

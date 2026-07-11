@@ -53,16 +53,17 @@ but it stops pretending to be networked.
 ## The core loop (design)
 
 1. **Camp (surface).** Bank, furnace, anvil, order board. Safe. Cozy music.
-2. **Descend.** Enter the shaft. Each band is a procedurally-seeded chamber:
-   richer ore, tighter tunnels, faster instability growth. A run visits bands
-   in order; ladders only go *down* until you find the band's **hoist**
-   (escape point) — finding it is the per-band objective.
+2. **Descend.** Enter the shaft. Each band is a seeded chamber (the *mountain
+   seed* is rolled per save file, so every new game is a new mountain):
+   richer ore, tighter tunnels, faster instability growth, thicker fog.
 3. **Push your luck.** Bag weight slows you and drains run energy (already
    implemented). Instability tells escalate: dust → creaks → cracks → cave-in.
-   Shoring timbers buy time but cost bag space. Take the hoist up with your
-   haul, or gamble one band deeper.
-4. **Cash out or die.** Surface: everything banks automatically. Cave-in or
-   trapped: bag is lost, banked goods and forged gear survive.
+   Shoring timbers buy time but cost bag space. Climb out with your haul, or
+   gamble one band deeper.
+4. **Cash out or die.** Your bag is only at risk underground — surfacing *is*
+   the cash-out. Die to a cave-in and the whole bag is gone; gold, XP, the
+   pickaxe on your belt, and anything stashed in the Vault before the dive
+   survive. The Vault is the deliberate pre-dive stash, Dome Keeper-style.
 5. **Forge up.** Smelt banked ore, hammer a better pickaxe (wider strike
    window, faster swings — already implemented as quality tiers), fill orders
    for gold, buy timbers/coal. Dive again.
@@ -82,7 +83,7 @@ with the existing project compiling green at hour zero.
 | Hours | Work | Done means |
 |---|---|---|
 | 0–1 | **Strip to single-player.** Remove Fenn/bot boot path, chat UI, latency sim. Boot straight into camp. | Play mode = one player at camp, no MMO UI |
-| 1–3 | **Run structure.** Band count 3 → 10 with seeded per-run layout variation; add hoist objects per band; death drops bag & returns to camp; surface auto-banks. | Full run loop playable: descend → die/escape → camp |
+| 1–3 | **Run structure.** Band count 3 → 10 with seeded per-save layout variation; death drops the whole bag & wakes you at camp (gold/XP/gear/Vault survive); the Heart of the Mountain win object at band 10. | Full run loop playable: descend → die/escape → camp |
 | 3–4 | **Meta loop.** Forged gear persists across runs; order board gates pickaxe tiers; win condition at band 10 + victory screen. | A player can lose runs and still progress |
 | 4–5 | **Balance pass.** Tune instability/energy/prices so band 3 is reachable run one, band 10 needs ~5 upgrade cycles. Playtest 3 full runs. | First win takes ~2 hours, deaths feel fair |
 | 5–6 | **Game feel.** Cave-in screenshake, dust particles, ore-pop sounds, heartbeat at high instability. CC0 audio (Kenney SFX, Kevin MacLeod music) — no licensing risk. | The mine is scary, the camp is cozy |

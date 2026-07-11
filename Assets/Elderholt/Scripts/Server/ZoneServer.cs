@@ -38,6 +38,7 @@ namespace Elderholt
         public int smithXp;       // Smithing
         public int gold;
         public int energy = 100;  // run energy 0..100
+        public bool won;          // has mined the Heart of the Mountain
         public string pickaxe = "pickaxe.worn";
         public float x, z;
         public int band;
@@ -123,39 +124,94 @@ namespace Elderholt
         // (e.g. the bot picking the nearest rock — the prototype reads server.nodes).
         public IReadOnlyList<OreNode> Nodes => nodes;
 
-        // (x, z, band, metal) for every node in the zone.
-        static readonly (float x, float z, int band, string metal)[] NodeDefs =
+        // Band 0 — Grey Quarry surface veins (static; the tutorial field).
+        static readonly (float x, float z, int band, string metal)[] SurfaceNodes =
         {
-            // Band 0 — Grey Quarry surface veins (east of the city, per the map)
             (29, -5, 0, "copper"), (31, 3, 0, "copper"), (33, -7, 0, "copper"),
             (38, 4, 0, "copper"), (30, -1, 0, "copper"), (39, -4, 0, "copper"),
-            // Band 1 — Greyroot Gallery
-            (212, -6, 1, "copper"), (228, -4, 1, "tin"), (214, 7, 1, "tin"),
-            (226, 8, 1, "copper"), (220, -10, 1, "tin"),
-            // Band 2 — Deepseam Hollow
-            (434, -5, 2, "iron"), (446, -4, 2, "iron"), (436, 6, 2, "iron"), (445, 6, 2, "iron"),
         };
 
-        static string SavePath => Path.Combine(Application.persistentDataPath, "elderholt_server_v3.json");
+        // The mountain seed: underground layout is generated from it, so a save
+        // file always rebuilds the same mountain, and a fresh character gets a
+        // fresh one.
+        readonly int seed;
+
+        static string SavePath => Path.Combine(Application.persistentDataPath, "deepseam_save_v1.json");
+
+        // Underground node layout for bands 1..N-1, deterministic per seed.
+        // Deeper bands lean to better metals; the last band holds the Heart.
+        static List<(float x, float z, int band, string metal)> BuildNodeDefs(int seed)
+        {
+            var defs = new List<(float x, float z, int band, string metal)>(SurfaceNodes);
+            System.Random rng = new System.Random(seed);
+
+            for (int b = 1; b < Bands.Count; b++)
+            {
+                BandDef band = Bands.All[b];
+
+                if (b == Bands.Count - 1)
+                {
+                    // The Heart chamber: the win object plus a last pair of veins.
+                    defs.Add((band.originX, band.originZ - 5f, b, Items.HeartMetal));
+                    defs.Add((band.originX - 5f, band.originZ + 3f, b, "iron"));
+                    defs.Add((band.originX + 5f, band.originZ + 3f, b, "iron"));
+                    continue;
+                }
+
+                int count = b >= 5 ? 6 : 5;
+                var placed = new List<Vector2>();
+                for (int i = 0; i < count; i++)
+                {
+                    // Rejection-sample a spot: off the shaft, off other rocks.
+                    for (int attempt = 0; attempt < 40; attempt++)
+                    {
+                        float ang = (float)(rng.NextDouble() * Mathf.PI * 2.0);
+                        float dist = 4.5f + (float)rng.NextDouble() * (band.radius - 7f);
+                        var at = new Vector2(band.originX + Mathf.Cos(ang) * dist,
+                                             band.originZ + Mathf.Sin(ang) * dist);
+                        bool clear = true;
+                        foreach (Vector2 other in placed)
+                            if ((other - at).sqrMagnitude < 9f) { clear = false; break; }
+                        if (!clear) continue;
+                        placed.Add(at);
+                        defs.Add((at.x, at.y, b, RollMetal(b, rng)));
+                        break;
+                    }
+                }
+            }
+            return defs;
+        }
+
+        static string RollMetal(int band, System.Random rng)
+        {
+            double r = rng.NextDouble();
+            if (band <= 1) return r < 0.6 ? "copper" : "tin";
+            if (band <= 3) return r < 0.45 ? "tin" : "iron";
+            if (band <= 6) return r < 0.25 ? "tin" : "iron";
+            return "iron";
+        }
 
         public ZoneServer()
         {
             SaveData saved = Load();
+            seed = saved != null && saved.seed != 0 ? saved.seed : UnityEngine.Random.Range(1, int.MaxValue);
 
-            for (int i = 0; i < NodeDefs.Length; i++)
+            List<(float x, float z, int band, string metal)> defs = BuildNodeDefs(seed);
+            for (int i = 0; i < defs.Count; i++)
             {
                 NodeSave ns = (saved != null && saved.nodes != null && i < saved.nodes.Count) ? saved.nodes[i] : null;
+                bool heart = defs[i].metal == Items.HeartMetal;
                 nodes.Add(new OreNode
                 {
                     id = "n" + i,
-                    x = NodeDefs[i].x,
-                    z = NodeDefs[i].z,
-                    band = NodeDefs[i].band,
-                    metal = NodeDefs[i].metal,
-                    ore = ns != null ? ns.ore : 4 + (i % 3),
+                    x = defs[i].x,
+                    z = defs[i].z,
+                    band = defs[i].band,
+                    metal = defs[i].metal,
+                    ore = ns != null ? ns.ore : heart ? 1 : 4 + defs[i].band / 3 + (i % 3),
                     respawn = ns != null ? ns.respawn : 0,
                     richness = ns != null ? ns.richness : UnityEngine.Random.value,
-                    phase = i % Bands.All[NodeDefs[i].band].tempo,
+                    phase = i % Bands.All[defs[i].band].tempo,
                 });
             }
 
@@ -176,6 +232,7 @@ namespace Elderholt
                         smithXp = cs.smithXp,
                         gold = cs.gold,
                         energy = cs.energy,
+                        won = cs.won,
                         pickaxe = string.IsNullOrEmpty(cs.pickaxe) ? "pickaxe.worn" : cs.pickaxe,
                         x = cs.x,
                         z = cs.z,
@@ -508,6 +565,7 @@ namespace Elderholt
                     id = p.id, name = p.name, x = p.x, z = p.z, dir = p.dir, band = p.band,
                     anim = anim, wedgeAt = p.wedgeAt,
                     energy = chr[p.id].energy, running = p.runOn && !p.forcedWalk,
+                    won = chr[p.id].won,
                 });
             }
             foreach (OreNode n in nodes)
@@ -596,14 +654,15 @@ namespace Elderholt
         {
             try
             {
-                SaveData data = new SaveData { tick = tick };
+                SaveData data = new SaveData { tick = tick, seed = seed };
                 foreach (KeyValuePair<string, CharacterRecord> kv in chr)
                 {
                     CharacterRecord r = kv.Value;
                     CharSave cs = new CharSave
                     {
                         id = kv.Key, xp = r.xp, smithXp = r.smithXp, gold = r.gold,
-                        energy = r.energy, pickaxe = r.pickaxe, x = r.x, z = r.z, band = r.band,
+                        energy = r.energy, won = r.won, pickaxe = r.pickaxe,
+                        x = r.x, z = r.z, band = r.band,
                     };
                     foreach (KeyValuePair<string, int> it in r.bag)
                         if (it.Value > 0) cs.bag.Add(new ItemSave { item = it.Key, qty = it.Value });

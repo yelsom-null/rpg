@@ -94,6 +94,9 @@ namespace Elderholt
         Traded,        // who, gold = delta, text = summary
         Contract,      // who, text = description, gold = reward (offer/complete)
         Perk,          // who, text = perk unlocked
+        // Deepseam — the run loop
+        Died,          // who, band = where it happened, text = flavour (bag lost)
+        Victory,       // who, item = the Heart, text = flavour
     }
 
     // Server -> client, batched inside each snapshot's events list.
@@ -126,6 +129,7 @@ namespace Elderholt
         public string wedgeAt; // node id the player is holding a wedge at (or null)
         public int energy;     // run energy 0..100
         public bool running;   // the persistent run toggle, as the server sees it
+        public bool won;       // has mined the Heart of the Mountain
     }
 
     public class NodeSnap
@@ -185,7 +189,7 @@ namespace Elderholt
         public Dictionary<string, BagSnap> bags = new Dictionary<string, BagSnap>();
         public Dictionary<string, ContractSnap> contracts = new Dictionary<string, ContractSnap>();
         public Dictionary<string, ForgeSnap> forges = new Dictionary<string, ForgeSnap>();
-        public int[] instability = new int[3];   // per band; [0] unused (surface)
+        public int[] instability = new int[Bands.Count];   // per band; [0] unused (surface)
         public List<GameEvent> events = new List<GameEvent>();
     }
 }

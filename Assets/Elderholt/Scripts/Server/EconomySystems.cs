@@ -82,7 +82,7 @@ namespace Elderholt
         // ------------------------------------------------------------------ vault
         // The Vault: Bracken Cross's bank. Banked goods are character truth, not
         // carried inventory — cave-ins can't touch them ("walls = safety").
-        static readonly string[] Bankable = { "ore.", "bar.", "blade.", Items.Gem };
+        static readonly string[] Bankable = { "ore.", "bar.", "blade.", Items.Gem, Items.Heart };
 
         static bool IsBankable(string item)
         {

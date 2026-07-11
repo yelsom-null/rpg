@@ -134,13 +134,16 @@ namespace Elderholt
 
         void ApplyUndergroundAtmosphere(int band)
         {
-            Color dark = Geo.Hex(0x14120e);
+            // Deeper bands close in: fog tightens a step per band until the
+            // Hungry Dark earns its name. The Heart chamber glows gold instead.
+            bool heart = band == Bands.Count - 1;
+            Color dark = heart ? Geo.Hex(0x2a1c0a) : Geo.Hex(0x14120e);
             cam.backgroundColor = dark;
             RenderSettings.fog = true;
             RenderSettings.fogColor = dark;
             RenderSettings.fogMode = FogMode.Linear;
-            RenderSettings.fogStartDistance = band >= 2 ? 8f : 12f;
-            RenderSettings.fogEndDistance = band >= 2 ? 34f : 48f;
+            RenderSettings.fogStartDistance = Mathf.Max(5f, 13f - band);
+            RenderSettings.fogEndDistance = Mathf.Max(20f, 50f - band * 3f);
         }
 
         // Single-player: the client and server share the process, so intents and

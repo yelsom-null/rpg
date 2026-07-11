@@ -18,6 +18,9 @@ namespace Elderholt
         // ------------------------------------------------------------------ swings
         void DoSwing(string id, PlayerState p, CharacterRecord rec, OreNode node)
         {
+            // The win object: no grades, no rhythm — reaching it was the game.
+            if (node.metal == Items.HeartMetal) { MineHeart(id, p, rec, node); return; }
+
             int lvl = XpCurve.Level(rec.xp);
             int pick = Items.PickaxeTier(rec.pickaxe);
 
@@ -85,6 +88,25 @@ namespace Elderholt
                 p.anim = "idle";
                 RevealSeam(node);
             }
+        }
+
+        // Mining the Heart of the Mountain wins the run. The trophy goes to the
+        // bag (bank it!), the flag is forever — dying later can't un-win.
+        void MineHeart(string id, PlayerState p, CharacterRecord rec, OreNode node)
+        {
+            node.ore = 0;
+            node.respawn = 0;   // never respawns — there is one Heart
+            rec.won = true;
+            Give(rec, Items.Heart, 1);
+            GrantMiningXp(id, p, rec, 500);
+            events.Add(new GameEvent
+            {
+                type = EventType.Victory, who = id, item = Items.Heart,
+                text = "the Heart of the Mountain comes free in your hands",
+            });
+            p.mineId = null;
+            p.anim = "idle";
+            Save();   // victory write-through
         }
 
         // "Veins have direction — follow the seam right and it yields more."
@@ -160,7 +182,7 @@ namespace Elderholt
 
             foreach (OreNode n in nodes)
             {
-                if (n.band != band) continue;
+                if (n.band != band || n.metal == Items.HeartMetal) continue;   // the Heart survives
                 n.ore = 0;
                 n.respawn = 30;
                 n.seamUntil = 0;
@@ -171,21 +193,32 @@ namespace Elderholt
                 if (p.band != band) continue;
                 CharacterRecord rec = chr[p.id];
 
-                // Lose ~30% of each carried ore stack in the scramble out.
-                List<string> keys = new List<string>(rec.bag.Keys);
-                foreach (string k in keys)
-                    if (k.StartsWith("ore.")) rec.bag[k] = Mathf.CeilToInt(rec.bag[k] * 0.7f);
+                // Death: the mountain keeps the bag. Vault, gold, XP and the
+                // pickaxe on your belt survive — that's the run loop's stakes.
+                rec.bag.Clear();
+                rec.energy = 100;
 
-                // Master perk (Mining 12): cave-ins shake a gem loose for you.
+                // Master perk (Mining 12): cave-ins shake a gem loose for you —
+                // straight to the Vault, since your bag is under the rubble.
                 if (XpCurve.Level(rec.xp) >= 12)
                 {
-                    Give(rec, Items.Gem, 1);
-                    events.Add(new GameEvent { type = EventType.Perk, who = p.id, text = "a gem glitters in the rubble" });
+                    rec.vault.TryGetValue(Items.Gem, out int gems);
+                    rec.vault[Items.Gem] = gems + 1;
+                    events.Add(new GameEvent { type = EventType.Perk, who = p.id, text = "a gem glitters in the rubble — the Vault holds it" });
                 }
 
                 MovePlayerToBand(p, rec, 0);
+                // Wake at camp, in the city — not at the shaft mouth.
+                p.x = 0f; p.z = 2f;
+                rec.x = 0f; rec.z = 2f;
+                events.Add(new GameEvent
+                {
+                    type = EventType.Died, who = p.id, band = band,
+                    text = "buried in " + Bands.All[band].name + " — you wake at camp, bag gone",
+                });
                 events.Add(new GameEvent { type = EventType.BandMoved, who = p.id, band = 0 });
             }
+            Save();   // death write-through: no reload-scumming the bag back
         }
 
         // Shoring: spend timber to prop the shaft and reset some risk.

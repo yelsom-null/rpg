@@ -82,7 +82,7 @@ namespace Elderholt
         // ------------------------------------------------------------------ vault
         // The Vault: Bracken Cross's bank. Banked goods are character truth, not
         // carried inventory — cave-ins can't touch them ("walls = safety").
-        static readonly string[] Bankable = { "ore.", "bar.", "blade.", Items.Gem };
+        static readonly string[] Bankable = { "ore.", "bar.", "blade.", Items.Gem, Items.Heart };
 
         static bool IsBankable(string item)
         {
@@ -147,10 +147,15 @@ namespace Elderholt
 
         void OfferContract(string id, CharacterRecord rec)
         {
+            // Orders track your skill: greener miners get copper runs, veterans
+            // iron — and the caravan asks for more the better you get.
+            int lvl = XpCurve.Level(rec.xp);
             float mroll = Random.value;
-            string metal = mroll < 0.5f ? "copper" : mroll < 0.8f ? "tin" : "iron";
+            string metal = lvl >= 8 ? (mroll < 0.2f ? "copper" : mroll < 0.5f ? "tin" : "iron")
+                         : lvl >= 4 ? (mroll < 0.35f ? "copper" : mroll < 0.7f ? "tin" : "iron")
+                         : (mroll < 0.5f ? "copper" : mroll < 0.8f ? "tin" : "iron");
             int grade = Random.value < 0.3f ? 2 : 1;
-            int qty = 4 + Mathf.FloorToInt(Random.value * 4f);   // 4–7
+            int qty = 4 + Mathf.FloorToInt(Random.value * 4f) + Mathf.Min(4, lvl / 3);   // 4–7, growing to 8–11
             string item = Items.Ore(metal, grade);
             int gold = Mathf.CeilToInt(Items.PriceToSell(item) * qty * 1.7f);
 

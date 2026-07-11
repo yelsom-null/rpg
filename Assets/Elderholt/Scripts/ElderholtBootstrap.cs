@@ -6,16 +6,17 @@ namespace Elderholt
 {
     // ============================================================================
     //  ElderholtBootstrap — the host process. It stands up the authoritative
-    //  ZoneServer, the Thornmere world, the local player's client and the Fenn
-    //  bot, connects them through a simulated-latency pipe, and then each frame:
-    //  advances the 600 ms tick, delivers piped messages, interpolates avatars
-    //  between the last two snapshots, drives the orbit camera, turns clicks and
-    //  keys into intents, and paints the monospace HUD/chat/panel overlay.
+    //  ZoneServer, the Thornmere world and the local player's client, and then
+    //  each frame: advances the 600 ms tick, interpolates avatars between the
+    //  last two snapshots, drives the orbit camera, turns clicks and keys into
+    //  intents, and paints the monospace HUD/panel overlay.
     //
-    //  Phase 2 adds: depth-band ambience, the strike-rhythm indicator, wedge via
-    //  right-click, shoring, the bag, and the stall / furnace / anvil / notice-
-    //  board context panels. Keys: Space strike/hammer · W pump · Q quench ·
-    //  T shore · B bag · E descend · R ascend.
+    //  Deepseam is single-player: the client talks to the in-process server
+    //  directly (no latency pipe, no second client). The server/client split
+    //  stays because it keeps the sim deterministic and testable.
+    //
+    //  Keys: Space strike/hammer · F pump · Q quench · T shore · B bag ·
+    //  E descend · R ascend · X run.
     //
     //  Auto-boots on Play (no scene wiring required) via RuntimeInitialize.
     // ============================================================================
@@ -28,13 +29,10 @@ namespace Elderholt
             new GameObject("Elderholt").AddComponent<ElderholtBootstrap>();
         }
 
-        const float LatencyMs = 110f;
-
         Camera cam;
         ZoneServer server;
         ThornmereWorld world;
         GameClient gameClient;
-        BotClient botClient;
 
         // camera orbit state (movement doc §6: yaw free, pitch 9°–69°, zoom 6–24 m)
         float yaw = 0.6f, pitch = 0.42f, dist = 14f;
@@ -51,19 +49,23 @@ namespace Elderholt
         Renderer markerRend;
 
         float tickAccum;
-        float pingAccum;
 
         // input drag tracking
         bool pointerDown, dragging;
         Vector3 lastMouse;
-        bool chatFocused;
         bool bagOpen;
         string mineTargetId;    // node we last sent interact for (strike indicator)
         int shownBand;          // band whose ambience is currently applied
 
+        // The product shell around the sim: title on boot, Esc pauses. The
+        // world renders behind both; ticks only advance while Playing.
+        enum ShellState { Title, Playing, Paused }
+        ShellState shell = ShellState.Title;
+        float volume;
+
         readonly Dictionary<string, Vector2> shown = new Dictionary<string, Vector2>
         {
-            { "you", new Vector2(0, 2) }, { "fenn", new Vector2(-3, 4) },
+            { "you", new Vector2(0, 2) },
         };
 
         class Sched { public double due; public Action a; }
@@ -71,10 +73,6 @@ namespace Elderholt
 
         class Floaty { public string text; public Vector3 pos; public float life; }
         readonly List<Floaty> floats = new List<Floaty>();
-
-        struct ChatMsg { public string from; public string text; public bool you; }
-        readonly List<ChatMsg> chatLog = new List<ChatMsg>();
-        string chatDraft = "";
 
         // Rects the IMGUI drew last frame, so world clicks don't fire through panels.
         readonly List<Rect> guiRects = new List<Rect>();
@@ -87,16 +85,12 @@ namespace Elderholt
             scheduled.Add(new Sched { due = NowMs + delaySeconds * 1000.0, a = action });
         }
 
-        public void PushChat(string from, string text, bool isYou)
-        {
-            chatLog.Add(new ChatMsg { from = from, text = text, you = isYou });
-            if (chatLog.Count > 6) chatLog.RemoveRange(0, chatLog.Count - 6);
-        }
-
         // ---------- setup ----------
         void Awake()
         {
             SetupEnvironment();
+            volume = PlayerPrefs.GetFloat("deepseam.volume", 1f);
+            AudioListener.volume = volume;
             server = new ZoneServer();
             world = new ThornmereWorld(server);
             ConnectClients();
@@ -148,30 +142,27 @@ namespace Elderholt
 
         void ApplyUndergroundAtmosphere(int band)
         {
-            Color dark = Geo.Hex(0x14120e);
+            // Deeper bands close in: fog tightens a step per band until the
+            // Hungry Dark earns its name. The Heart chamber glows gold instead.
+            bool heart = band == Bands.Count - 1;
+            Color dark = heart ? Geo.Hex(0x2a1c0a) : Geo.Hex(0x14120e);
             cam.backgroundColor = dark;
             RenderSettings.fog = true;
             RenderSettings.fogColor = dark;
             RenderSettings.fogMode = FogMode.Linear;
-            RenderSettings.fogStartDistance = band >= 2 ? 8f : 12f;
-            RenderSettings.fogEndDistance = band >= 2 ? 34f : 48f;
+            RenderSettings.fogStartDistance = Mathf.Max(5f, 13f - band);
+            RenderSettings.fogEndDistance = Mathf.Max(20f, 50f - band * 3f);
         }
 
-        // Simulated one-way latency, matching the prototype's lat() jitter.
-        float LatSeconds() => Mathf.Max(0f, LatencyMs * (0.75f + UnityEngine.Random.value * 0.5f) / 2f) / 1000f;
-
+        // Single-player: the client and server share the process, so intents and
+        // snapshots are delivered directly — no simulated latency.
         void ConnectClients()
         {
             gameClient = new GameClient(this, "you");
-            server.Connect("you", "You", snap => Schedule(LatSeconds(), () => gameClient.OnSnapshot(snap)));
-
-            botClient = new BotClient(this, server, BotSend, "fenn");
-            server.Connect("fenn", "Fenn", snap => Schedule(LatSeconds(), () => botClient.OnSnapshot(snap)));
-            botClient.Greet();
+            server.Connect("you", "You", snap => gameClient.OnSnapshot(snap));
         }
 
-        void SendToServer(Intent i) => Schedule(LatSeconds(), () => server.SubmitIntent("you", i));
-        void BotSend(Intent i) => Schedule(LatSeconds(), () => server.SubmitIntent("fenn", i));
+        void SendToServer(Intent i) => server.SubmitIntent("you", i);
 
         // ---------- snapshot helpers ----------
         Snapshot Snap => gameClient.Next.snap;
@@ -205,19 +196,30 @@ namespace Elderholt
         {
             float dt = Mathf.Min(Time.deltaTime, 0.05f);
 
-            RunScheduler();
-
-            tickAccum += Time.deltaTime * 1000f;
-            while (tickAccum >= ZoneServer.TickMs)
+            if (Input.GetKeyDown(KeyCode.Escape))
             {
-                tickAccum -= ZoneServer.TickMs;
-                server.Step();
+                if (shell == ShellState.Playing) shell = ShellState.Paused;
+                else if (shell == ShellState.Paused) shell = ShellState.Playing;
             }
 
-            pingAccum += Time.deltaTime;
-            if (pingAccum >= 2f) { pingAccum = 0f; SendToServer(Intent.Ping(NowMs)); }
+            if (shell == ShellState.Playing)
+            {
+                RunScheduler();
 
-            HandleInput();
+                tickAccum += Time.deltaTime * 1000f;
+                while (tickAccum >= ZoneServer.TickMs)
+                {
+                    tickAccum -= ZoneServer.TickMs;
+                    server.Step();
+                }
+
+                HandleInput();
+            }
+            else if (shell == ShellState.Title)
+            {
+                yaw += 0.05f * dt;   // slow idle orbit behind the title
+            }
+
             RenderInterpolated(dt);
             UpdateFloats(dt);
             UpdateAtmosphere();
@@ -426,8 +428,6 @@ namespace Elderholt
 
             if (Input.GetMouseButtonUp(1) && !PointerOverUI()) Pick(true);
 
-            if (chatFocused) return;   // typing — keys stay out of the world
-
             // Arrow keys are the camera's (§6): ←/→ yaw, ↑/↓ pitch.
             float dt = Time.deltaTime;
             if (Input.GetKey(KeyCode.LeftArrow)) { yaw += 2.2f * dt; compassReset = false; }
@@ -442,11 +442,11 @@ namespace Elderholt
 
             if (Input.GetKeyDown(KeyCode.Space))
             {
-                if (forge != null) SendToServer(Intent.Hammer());
+                if (forge != null) { SendToServer(Intent.Hammer()); Sfx.Play("hammer"); }
                 else if (me != null && me.anim == "mine") SendToServer(Intent.Strike());
             }
-            if (Input.GetKeyDown(KeyCode.F) && forge != null) SendToServer(Intent.Pump());
-            if (Input.GetKeyDown(KeyCode.Q) && forge != null) SendToServer(Intent.Quench());
+            if (Input.GetKeyDown(KeyCode.F) && forge != null) { SendToServer(Intent.Pump()); Sfx.Play("smelt", 0.6f); }
+            if (Input.GetKeyDown(KeyCode.Q) && forge != null) { SendToServer(Intent.Quench()); Sfx.Play("quench"); }
             if (Input.GetKeyDown(KeyCode.T) && me != null && me.band > 0) SendToServer(Intent.Shore());
             if (Input.GetKeyDown(KeyCode.B)) bagOpen = !bagOpen;
             if (Input.GetKeyDown(KeyCode.E)) TryBandMove(+1);
@@ -520,7 +520,9 @@ namespace Elderholt
             return false;
         }
 
-        void Pick(bool wedge)
+        // Left-click a rock mines it; right-click prospect-taps it (walk closer
+        // first if the wall is out of arm's reach).
+        void Pick(bool prospect)
         {
             Ray ray = cam.ScreenPointToRay(Input.mousePosition);
             if (!Physics.Raycast(ray, out RaycastHit hit, 500f)) return;
@@ -528,10 +530,29 @@ namespace Elderholt
             OreRockRef rock = hit.collider.GetComponentInParent<OreRockRef>();
             if (rock != null)
             {
+                Vector3 rp = world.RockGroups[rock.id].transform.position;
+                if (prospect)
+                {
+                    Vector2 me2 = shown["you"];
+                    float dx = me2.x - rp.x, dz = me2.y - rp.z;
+                    float reach = ZoneServer.NodeReach + 1.4f;
+                    if (dx * dx + dz * dz <= reach * reach)
+                    {
+                        SendToServer(Intent.Prospect(rock.id));
+                        Sfx.Play("shore", 0.5f);
+                    }
+                    else
+                    {
+                        SendToServer(Intent.Move(rp.x + 1.4f, rp.z - 1.4f));
+                        ShowMarker(rp, false);
+                        gameClient.status = "walking closer to tap the wall…";
+                    }
+                    return;
+                }
                 mineTargetId = rock.id;
-                SendToServer(wedge ? Intent.Wedge(rock.id) : Intent.Interact(rock.id));
-                ShowMarker(world.RockGroups[rock.id].transform.position, true);
-                gameClient.status = wedge ? "bracing the wedge at " + rock.id : "intent sent: interact " + rock.id;
+                SendToServer(Intent.Interact(rock.id));
+                ShowMarker(rp, true);
+                gameClient.status = "walking to the rock…";
                 return;
             }
 
@@ -571,7 +592,7 @@ namespace Elderholt
         }
 
         // ---------- UI ----------
-        GUIStyle panelText, nameTagStyle, floatStyle, chatYou, chatOther, warnText, headText;
+        GUIStyle panelText, floatStyle, warnText, headText, titleStyle, taglineStyle;
         Texture2D panelBg, barBg, barFill;
 
         void EnsureStyles()
@@ -584,10 +605,9 @@ namespace Elderholt
             panelText = Label(12, txt, false);
             headText = Label(12, Geo.Hex(0xf0d060), false);
             warnText = Label(12, Geo.Hex(0xe07840), false);
-            nameTagStyle = Label(12, Color.white, true);
             floatStyle = Label(16, Geo.Marker, true);
-            chatYou = Label(13, Geo.Hex(0xf0d060), false);
-            chatOther = Label(13, Geo.Hex(0x9fd08a), false);
+            titleStyle = Label(46, Geo.Hex(0xf0d060), true);
+            taglineStyle = Label(14, txt, true);
         }
 
         static GUIStyle Label(int size, Color c, bool center)
@@ -613,13 +633,119 @@ namespace Elderholt
             EnsureStyles();
             guiRects.Clear();
 
+            if (shell == ShellState.Title) { DrawTitle(); return; }
+
             DrawHud();
             DrawContextPanel();
             if (bagOpen) DrawBag();
             DrawWorldLabels();
-            DrawChat();
+            if (gameClient.justWon && shell == ShellState.Playing) DrawVictory();
+            if (shell == ShellState.Paused) DrawPause();
+        }
 
-            chatFocused = GUI.GetNameOfFocusedControl() == "chatInput";
+        // A GUI.Button that also blocks world clicks under it.
+        bool Button(float x, float y, float w, float h, string label)
+        {
+            Rect r = new Rect(x, y, w, h);
+            guiRects.Add(r);
+            return GUI.Button(r, label);
+        }
+
+        void DrawTitle()
+        {
+            float cx = Screen.width / 2f;
+            GUI.Label(new Rect(cx - 400, Screen.height * 0.20f, 800, 60), "DEEPSEAM", titleStyle);
+            GUI.Label(new Rect(cx - 400, Screen.height * 0.20f + 60, 800, 24),
+                "Dig deep. Sell everything. Don't get buried.", taglineStyle);
+
+            const float bw = 260f, bh = 32f;
+            float y = Screen.height * 0.46f;
+            bool hasSave = ZoneServer.SaveExists;
+            if (hasSave && Button(cx - bw / 2f, y, bw, bh, "Continue")) shell = ShellState.Playing;
+            if (hasSave) y += 40f;
+            if (Button(cx - bw / 2f, y, bw, bh, hasSave ? "New mountain" : "Begin"))
+            {
+                if (hasSave) NewGame();
+                shell = ShellState.Playing;
+            }
+            y += 40f;
+            DrawSettingsRow(cx - bw / 2f, y, bw);
+            y += 40f;
+            if (Button(cx - bw / 2f, y, bw, bh, "Quit")) Application.Quit();
+
+            GUI.Label(new Rect(cx - 400, Screen.height - 30, 800, 20),
+                "every new mountain is seeded fresh — no two dig the same", taglineStyle);
+        }
+
+        void DrawPause()
+        {
+            const float w = 320f, h = 226f;
+            Rect r = Panel(Screen.width / 2f - w / 2f, Screen.height / 2f - h / 2f, w, h);
+            GUI.Label(new Rect(r.x + 16, r.y + 12, w - 32, 22), "PAUSED", headText);
+            float y = r.y + 44f;
+            if (Button(r.x + 16, y, w - 32, 30, "Resume (Esc)")) shell = ShellState.Playing;
+            y += 38f;
+            DrawSettingsRow(r.x + 16, y, w - 32);
+            y += 38f;
+            if (Button(r.x + 16, y, w - 32, 30, "Save & quit to title")) { server.Save(); shell = ShellState.Title; }
+            y += 38f;
+            if (Button(r.x + 16, y, w - 32, 30, "Quit to desktop")) { server.Save(); Application.Quit(); }
+        }
+
+        // Fullscreen toggle + volume slider, shared by title and pause.
+        void DrawSettingsRow(float x, float y, float w)
+        {
+            guiRects.Add(new Rect(x, y, w, 32));
+            bool fs = GUI.Toggle(new Rect(x, y + 6, 110, 20), Screen.fullScreen, " fullscreen");
+            if (fs != Screen.fullScreen) Screen.fullScreen = fs;
+            GUI.Label(new Rect(x + 118, y + 4, 36, 20), "vol", panelText);
+            float v = GUI.HorizontalSlider(new Rect(x + 152, y + 12, w - 152, 12), volume, 0f, 1f);
+            if (!Mathf.Approximately(v, volume))
+            {
+                volume = v;
+                AudioListener.volume = v;
+                PlayerPrefs.SetFloat("deepseam.volume", v);
+            }
+        }
+
+        // The win screen: shown once when the Heart comes free. Endless mode is
+        // just dismissing it; New mountain wipes the save and rolls a new seed.
+        void DrawVictory()
+        {
+            const float w = 460f, h = 190f;
+            Rect r = Panel(Screen.width / 2f - w / 2f, Screen.height / 2f - h / 2f, w, h);
+            GUI.Label(new Rect(r.x + 20, r.y + 16, w - 40, 24), "THE HEART OF THE MOUNTAIN IS YOURS", headText);
+            GUI.Label(new Rect(r.x + 20, r.y + 46, w - 40, 70),
+                "Ten bands down, past the creaks and the cave-ins, and the mountain\n" +
+                "gave up its heart. Bank it at the Vault — it outlasts any bag.\n" +
+                "The deeps stay open: keep digging, or start a new mountain.", panelText);
+            if (GUI.Button(new Rect(r.x + 20, r.y + h - 48, 195, 28), "Keep digging (endless)"))
+                gameClient.justWon = false;
+            if (GUI.Button(new Rect(r.x + w - 215, r.y + h - 48, 195, 28), "New mountain (new game)"))
+                NewGame();
+        }
+
+        // Wipe the save, roll a new seed, rebuild the world in place.
+        void NewGame()
+        {
+            ZoneServer.DeleteSave();
+            world.Destroy();
+            fadedRenderers.Clear();
+            markerRend = null;
+            floats.Clear();
+            mineTargetId = null;
+            bagOpen = false;
+            runPref = false;
+
+            server = new ZoneServer();
+            world = new ThornmereWorld(server);
+            ConnectClients();
+
+            shown["you"] = new Vector2(0, 2);
+            camFocusInit = false;
+            shownBand = 0;
+            ApplySurfaceAtmosphere();
+            gameClient.status = "a new mountain — the camp fires are lit";
         }
 
         Rect Panel(float x, float y, float w, float h)
@@ -636,23 +762,23 @@ namespace Elderholt
             Snapshot s = Snap;
             PlayerSnap me = Me();
             BagSnap bag = MyBag();
-            int youXp = 0, youSm = 0, fennXp = 0;
+            int youXp = 0, youSm = 0;
             if (s != null)
             {
                 s.xp.TryGetValue("you", out youXp);
                 s.smithXp.TryGetValue("you", out youSm);
-                s.xp.TryGetValue("fenn", out fennXp);
             }
             int band = me != null ? me.band : 0;
 
             Vector2 myPos = shown["you"];
-            Rect box = Panel(10, 10, 320, 196);
+            Rect box = Panel(10, 10, 320, 180);
             GUILayout.BeginArea(new Rect(box.x + 10, box.y + 8, box.width - 20, box.height - 12));
-            GUILayout.Label(Areas.Name(myPos.x, myPos.y, band).ToUpperInvariant() + "   tick " + g.tick + "   rtt " + g.rtt + "ms", headText);
+            GUILayout.Label(Areas.Name(myPos.x, myPos.y, band).ToUpperInvariant() + "   tick " + g.tick, headText);
             GUILayout.Label("Mining Lv " + XpCurve.Level(youXp) + " (" + youXp.ToString("N0") + ")   Smithing Lv " + XpCurve.Level(youSm) + " (" + youSm.ToString("N0") + ")", panelText);
-            GUILayout.Label("Fenn: Mining Lv " + XpCurve.Level(fennXp), panelText);
             if (bag != null)
                 GUILayout.Label("gold " + bag.gold + "g   ·   " + Items.Pretty(bag.pickaxe) + "   ·   bag (B)", panelText);
+            if (me != null && me.won)
+                GUILayout.Label("the Heart is yours — endless deeps below", headText);
             if (band > 0 && s != null)
             {
                 int inst = s.instability[band];
@@ -673,11 +799,7 @@ namespace Elderholt
             GUI.color = prevC;
             GUI.Label(new Rect(orb.x + 4, orb.y - 1, orb.width, 18), "energy " + energy, panelText);
 
-            Rect btn = new Rect(box.x, box.y + box.height + 6, 130, 24);
-            guiRects.Add(btn);
-            if (GUI.Button(btn, "Restart server")) Restart();
-
-            Rect runBtn = new Rect(box.x + 136, box.y + box.height + 6, 100, 24);
+            Rect runBtn = new Rect(box.x, box.y + box.height + 6, 100, 24);
             guiRects.Add(runBtn);
             if (GUI.Button(runBtn, runPref ? "Run: ON (X)" : "Run: off (X)")) ToggleRun();
 
@@ -915,10 +1037,6 @@ namespace Elderholt
 
         void DrawWorldLabels()
         {
-            foreach (KeyValuePair<string, Vector2> kv in shown)
-            {
-                DrawWorldLabel(new Vector3(kv.Value.x, 2.25f, kv.Value.y), kv.Key == "you" ? "You" : "Fenn", nameTagStyle);
-            }
             foreach (Floaty f in floats)
             {
                 Color prev = GUI.color;
@@ -946,37 +1064,6 @@ namespace Elderholt
             Vector3 sp = cam.WorldToScreenPoint(worldPos);
             if (sp.z <= 0) return;
             GUI.Label(new Rect(sp.x - 80, Screen.height - sp.y - 12, 160, 24), text, style);
-        }
-
-        void DrawChat()
-        {
-            float y = Screen.height - 40 - chatLog.Count * 18;
-            for (int i = 0; i < chatLog.Count; i++)
-            {
-                ChatMsg m = chatLog[i];
-                GUI.Label(new Rect(12, y + i * 18, 420, 18), m.from + ": " + m.text, m.you ? chatYou : chatOther);
-            }
-
-            Event e = Event.current;
-            GUI.SetNextControlName("chatInput");
-            Rect input = new Rect(12, Screen.height - 30, 320, 22);
-            guiRects.Add(input);
-            chatDraft = GUI.TextField(input, chatDraft, 120);
-            if (e.type == UnityEngine.EventType.KeyDown && (e.keyCode == KeyCode.Return || e.keyCode == KeyCode.KeypadEnter))
-            {
-                string t = chatDraft.Trim();
-                if (t.Length > 0) { SendToServer(Intent.Chat(t)); chatDraft = ""; }
-                e.Use();
-            }
-        }
-
-        void Restart()
-        {
-            server.Save();
-            server = new ZoneServer();
-            ConnectClients();
-            if (runPref) SendToServer(Intent.SetRun(true));   // re-sync the toggle
-            gameClient.status = "Server restarted — characters, bags, gold and rocks reloaded.";
         }
 
         void OnApplicationQuit()

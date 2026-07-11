@@ -28,6 +28,7 @@ namespace Elderholt
         public int smithXp;    // Smithing
         public int gold;
         public int energy = 100;
+        public bool won;       // has mined the Heart of the Mountain
         public string pickaxe;
         public float x;
         public float z;
@@ -55,6 +56,7 @@ namespace Elderholt
     public class SaveData
     {
         public long tick;
+        public int seed;   // the mountain seed: underground layout regenerates from it
         public List<CharSave> chr = new List<CharSave>();
         public List<NodeSave> nodes = new List<NodeSave>();
         public int[] instability = new int[Bands.Count];

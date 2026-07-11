@@ -520,7 +520,9 @@ namespace Elderholt
             return false;
         }
 
-        void Pick(bool wedge)
+        // Left-click a rock mines it; right-click prospect-taps it (walk closer
+        // first if the wall is out of arm's reach).
+        void Pick(bool prospect)
         {
             Ray ray = cam.ScreenPointToRay(Input.mousePosition);
             if (!Physics.Raycast(ray, out RaycastHit hit, 500f)) return;
@@ -528,10 +530,29 @@ namespace Elderholt
             OreRockRef rock = hit.collider.GetComponentInParent<OreRockRef>();
             if (rock != null)
             {
+                Vector3 rp = world.RockGroups[rock.id].transform.position;
+                if (prospect)
+                {
+                    Vector2 me2 = shown["you"];
+                    float dx = me2.x - rp.x, dz = me2.y - rp.z;
+                    float reach = ZoneServer.NodeReach + 1.4f;
+                    if (dx * dx + dz * dz <= reach * reach)
+                    {
+                        SendToServer(Intent.Prospect(rock.id));
+                        Sfx.Play("shore", 0.5f);
+                    }
+                    else
+                    {
+                        SendToServer(Intent.Move(rp.x + 1.4f, rp.z - 1.4f));
+                        ShowMarker(rp, false);
+                        gameClient.status = "walking closer to tap the wall…";
+                    }
+                    return;
+                }
                 mineTargetId = rock.id;
-                SendToServer(wedge ? Intent.Wedge(rock.id) : Intent.Interact(rock.id));
-                ShowMarker(world.RockGroups[rock.id].transform.position, true);
-                gameClient.status = wedge ? "bracing the wedge at " + rock.id : "intent sent: interact " + rock.id;
+                SendToServer(Intent.Interact(rock.id));
+                ShowMarker(rp, true);
+                gameClient.status = "walking to the rock…";
                 return;
             }
 

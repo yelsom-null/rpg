@@ -17,8 +17,19 @@ Unity project scaffold with [MCP for Unity](https://github.com/CoplayDev/unity-m
 
 See the [MCP for Unity docs](https://coplaydev.github.io/unity-mcp/) for troubleshooting and advanced configuration (multi-instance routing, tool groups, remote server auth).
 
-## The game: Elderholt — Phase 1
+## The game: DEEPSEAM
 
-`Assets/Elderholt/` contains a Unity adaptation of the **Elderholt** Phase 1 vertical slice (a RuneScape-inspired browser MMO design): an authoritative 600 ms tick server, persistent characters, one zone (Thornmere Reach), zone chat, and a shared mining rock — with a second in-process client (the bot **Fenn**) so shared-rock arbitration is demonstrable in a single Play session.
+*Dig deep. Sell everything. Don't get buried.*
 
-Just press **Play** — it auto-boots, no scene setup needed. See [`Assets/Elderholt/README.md`](Assets/Elderholt/README.md) for controls, the design-to-code mapping, and the persistence exit test.
+`Assets/Elderholt/` contains **Deepseam**, a single-player, run-based mining
+game carved from the earlier Elderholt MMO slice: descend a 10-band mine that
+creaks louder the deeper you go, fill your bag, and climb out before the
+gallery comes down — a cave-in takes everything you carry. Between dives:
+smelt, forge a better pickaxe, fill caravan orders, stash valuables in the
+Vault. Mine the **Heart of the Mountain** at band 10 to win; every new game
+rolls a fresh mountain seed. See [`Docs/one-day-steam-game-plan.md`](Docs/one-day-steam-game-plan.md)
+for the build plan and Steam shipping checklist.
+
+Just press **Play** — it auto-boots, no scene setup needed. See
+[`Assets/Elderholt/README.md`](Assets/Elderholt/README.md) for controls and
+the design-to-code mapping.

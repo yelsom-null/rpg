@@ -1,136 +1,92 @@
-# Elderholt — Phases 1 & 2 + Bracken Cross (Unity adaptation)
+# DEEPSEAM — a run-based mining game (Unity)
 
-A Unity port of the **Elderholt** vertical slices from the design handoff.
-The original design targets Cloudflare Workers + Durable Objects + three.js; this
-module reinterprets the same **behavioural spec** inside Unity while keeping the
-architecture honest: an authoritative "server" the clients never mutate, driven by
-600 ms ticks, with players submitting **intents** and receiving **snapshots**.
+*Dig deep. Sell everything. Don't get buried.*
 
-- **Phase 1 — Foundations:** one zone, two clients, chat, the shared mining rock,
-  persistence across a server restart.
-- **Phase 2 — Mining end to end:** the Depth Matrix's Mining MVP row (instability &
-  shoring, prospect-tap, seam-following, weak-point strikes, named depth bands, ore
-  grades, caravan contracts, the two-player wedge), Smithing as the ore consumer
-  (smelt → forge → quench, quality tiers, maker's mark), and a first-pass market
-  stall so **ore → gold → gear** closes.
-- **Bracken Cross — the first city** (from the City Map): a walled safe town where
-  every new character wakes. Market Square day stalls with the trade post, the
-  **Wayfarers' Guildhall** (work orders — the contract board), **The Vault** (a
-  working bank: banked ores/bars/blades/gems can't be lost to cave-ins), High
-  Street shopfront lots, Smithy Row (the public forge & anvil), Clan Quarter and
-  Warehouse Row plots. Every gate points at a skill: **Bracken Grove** (N),
-  **Mirror Pond** (W), **Grey Quarry** (E — surface veins, deep shafts below),
-  the **Caravan Field** (S) and **Redbriar March** (SE, bounty zone) staked out
-  for their phases.
+Deepseam is a single-player push-your-luck miner carved from the earlier
+**Elderholt** MMO vertical slice. The architecture it inherited stays honest:
+an authoritative in-process "server" driven by 600 ms ticks that the client
+never mutates — the client files **intents** and renders **snapshots**. That
+split is why the sim is deterministic, testable, and cheap to balance.
+
+Inspirations: SteamWorld Dig / Motherload (the dig-sell-upgrade loop),
+Dome Keeper (short runs, depth pressure), Dave the Diver (risky dive, cozy
+surface economy).
+
+## The loop
+
+1. **Camp (Bracken Cross).** Safe. Stall, furnace, anvil, work-order board,
+   and the Vault. Sell your haul, buy timber and coal, smelt bars, forge a
+   better pickaxe, sign caravan orders.
+2. **Descend.** The shaft in Grey Quarry (east gate) drops into a 10-band
+   mine. Each band is a seeded chamber — richer metals, faster instability
+   growth, tighter strike rhythm, thicker fog. The *mountain seed* is rolled
+   per save: every new game digs different.
+3. **Push your luck.** Mining raises the band's instability. Read the tells —
+   quiet → creaking timbers → racing cracks → RUMBLE — and shore with timber
+   (T) or climb out. Bag weight slows you and drains run energy.
+4. **Cash out or die.** Your bag is only at risk underground; surfacing is the
+   cash-out. A cave-in takes **everything you carry** — gold, XP, the pickaxe
+   on your belt and anything stashed in the Vault survive. The Vault is the
+   deliberate pre-dive stash.
+5. **Win.** Band 10, the Heart of the Mountain: one glowing rock at the bottom
+   of the world. Mine it and the run is won — then keep digging (endless) or
+   roll a new mountain.
 
 ## How to run
 
 1. Open the `rpg` project in Unity (6000.0.x).
-2. Press **Play**. That's it — `ElderholtBootstrap` auto-boots via
-   `[RuntimeInitializeOnLoadMethod]`, so no scene wiring is required. It builds the
-   Thornmere Reach world (surface + two underground chambers), starts the zone
-   server, and connects two clients: **You** and the bot **Fenn**.
+2. Press **Play**. `ElderholtBootstrap` auto-boots via
+   `[RuntimeInitializeOnLoadMethod]` — no scene wiring. The title screen
+   fronts the sim; **Continue** resumes your save, **New mountain** rolls a
+   fresh seed.
 
 ## Controls
 
-Movement (per the Movement & Camera doc — the server thinks in 1 m tiles,
-A*-pathing every step; the client renders continuous motion on top):
-
-- **Left-click ground** → walk there (gold marker). Clicks through walls path
-  around them; unreachable spots walk as close as possible ("You can't reach
-  that."). Paths cap at 25 tiles — long journeys are re-clicks.
-- **WASD** → camera-relative movement, sugar over the same move intents (the
-  server can't tell keyboard from mouse). Release to stop.
-- **X** → toggle **Run**: 2 tiles/tick instead of 1, drains the energy orb —
-  faster the heavier your bag. At 0 you're forced to walk until it recovers.
-  Walking and standing regenerate.
+- **Left-click ground** → walk (gold marker). Paths cap at 25 tiles.
+- **WASD** → camera-relative movement (sugar over the same move intents).
+- **X** → toggle **Run**: 2 tiles/tick, drains the energy orb — faster the
+  heavier your bag. At 0 you're forced to walk until it recovers.
 - **Left-click an ore rock** → path into reach and mine (red marker).
-- **Right-click an ore rock** → brace the **wedge** there (your partner mines
-  faster and safer; you earn support XP per partner swing).
-- **Space** while mining → **aimed strike** at the weak point. Watch the indicator:
-  hit the window for pristine ore; miss and the ore crumbles to rubble (until the
-  Steady Hands perk at Mining 5).
-- **T** underground → **shore** the gallery with a timber (buy timber at the stall).
-- **E / R** at the shaft mouth or a ladder → descend / climb up.
-- **B** → bag. **Enter** → chat.
-- **Camera:** drag to orbit, **←/→ ↑/↓** yaw/pitch (pitch clamped 9°–69°),
-  scroll to zoom (6–24 m, tighter in the shafts), **N compass button** eases back
-  to north. The rig follows with a soft ease; anything between the camera and
-  you fades translucent rather than the boom jumping.
-- At the **anvil** while forging: **F** pump the bellows, **Space** hammer,
-  **Q** quench. Hammer in the orange; white heat burns the billet; quench the
-  instant it's done or the piece cracks.
-- Walk near the **trade post / furnace / anvil / guildhall board / Vault** and
-  its panel appears bottom-right.
-- **Restart server** (top-left) → reboots the zone from its last save: XP, gold,
-  energy, bag, vault, pickaxe, band, rocks and instability all come back.
+- **Right-click an ore rock** → **prospect-tap**: hear its density (rich rocks
+  ring full). Walks you closer first if you're out of arm's reach.
+- **Space** while mining → **aimed strike** at the weak point. Hit the window
+  for pristine ore; miss and it crumbles (until Steady Hands at Mining 5).
+- **T** underground → **shore** the gallery with a timber.
+- **E / R** at the shaft mouth or ladder → descend / climb.
+- **B** → bag. **Esc** → pause (settings, save & quit).
+- At the **anvil**: **F** pump the bellows, **Space** hammer, **Q** quench.
+  Hammer in the orange; white heat burns the billet; quench the instant it's
+  done or the piece cracks.
+- **Camera:** drag to orbit, arrows yaw/pitch, scroll to zoom, **N** eases
+  back to north. Occluders fade translucent rather than the boom jumping.
 
-## The Phase 2 loop
+## Faithful behaviour (inherited from the Elderholt spec)
 
-1. Mine copper on the hillside; prospect-tap rocks to find the rich ones.
-2. Sell ore at the stall → buy **timber** (shoring) and **coal** (smelting).
-3. Descend at the mine entrance: **Greyroot Gallery** (copper/tin), then
-   **Deepseam Hollow** (iron). Deeper = better ore, richer grades — and the
-   gallery creaks. Read the tells; shore or run before the cave-in.
-4. Smelt bars at the furnace (ore grade sets the bar's ceiling), forge a better
-   **pickaxe** at the anvil (faster grades, wider strike window) or **blades**
-   that carry your maker's mark.
-5. Sign a caravan order at the notice board and deliver for a premium.
-
-## Where the design maps
-
-| Handoff concept                         | This project |
-|-----------------------------------------|--------------|
-| Durable Object (authoritative zone)     | `Server/ZoneServer.cs` (+ partials below) |
-| `makeServer()` behavioural spec         | `ZoneServer.Step()` (tick order, arbitration, respawn) |
-| Mining MVP row (Depth Matrix)           | `Server/MiningSystems.cs` |
-| Smithing MVP row (Depth Matrix)         | `Server/SmithingSystems.cs` |
-| Market stall + spec contracts           | `Server/EconomySystems.cs` |
-| Item/recipe/band catalogue              | `Server/Items.cs` |
-| D1 character store / localStorage save  | `Server/SaveData.cs` + JSON under `Application.persistentDataPath` |
-| Intents / snapshots protocol            | `Server/Protocol.cs` |
-| Client (renderer with opinions)         | `Client/GameClient.cs` |
-| Second player on the shared rock        | `Client/BotClient.cs` (Fenn: mines, sells, wedges) |
-| Simulated latency pipe                  | `ElderholtBootstrap` scheduler + `LatSeconds()` |
-| three.js Thornmere scene (style only)   | `World/ThornmereWorld.cs`, `World/Avatar.cs`, `World/Geo.cs` |
-
-## Faithful behaviour (from the spec)
-
-- **600 ms ticks.** Per-tick order: intents → move (4.2 u/s, stop at 1.9 u for a
-  rock, 0.2 otherwise) → mining swings → hazards (instability, cave-ins) → crafts
-  (furnace, anvil) → contracts → respawns (20 ticks, refill 4–6) → debounced save
-  every 8 ticks → broadcast snapshot.
-- **Everything consequential is computed server-side:** grades, strike windows,
-  instability, cave-ins, trades, contracts. The client renders and files intents.
-- **Economic write-through:** every stall trade and contract payout saves in the
-  same tick it is acknowledged — gold duplication is the one unforgivable bug.
-- **Shared-rock arbitration is server-side only.** Two miners on one node each
-  swing per tick; the wedge partnership modifies yield/safety on the server.
+- **600 ms ticks.** Per-tick order: intents → move → mining swings → hazards
+  (instability, cave-ins) → crafts → contracts → respawns → debounced save →
+  broadcast snapshot.
+- **Everything consequential is server-side:** grades, strike windows,
+  instability, cave-ins, trades, contracts, death, victory.
+- **Write-through economy:** trades, contract payouts, deaths and the victory
+  all save in the tick they happen — no reload-scumming.
 - **XP curve:** XP to complete level L = `floor(80 × 1.09^L)`, capped at 90.
-  Mining and Smithing track separately.
-- **Client interpolates** between the last two snapshots (band teleports excepted).
+  Mining and Smithing track separately. Perks at Mining 5 (Steady Hands),
+  8 (Seam Sense) and 12 (Gem Eye).
+- **Client interpolates** between the last two snapshots (band teleports
+  excepted).
 
-## Faithful adaptation notes (what differs, and why)
+## Visuals & audio
 
-- **Networking.** The design's two-browser test becomes two in-process clients
-  sharing one `ZoneServer`, exactly as the browser prototype models it. Swapping
-  the in-process pipe for a real transport is a later-phase change, not a rewrite.
-- **Timing minigames on a 600 ms grid.** The weak-point strike and quench windows
-  are judged in ticks (the weak tick ± one tick of grace ≈ the design's ±150 ms
-  server-side forgiveness, scaled to the tick model).
-- **Instability is read, not shown** — the HUD gives the tunnel's tells ("the
-  timbers creak overhead"), with the raw number only as a debug bracket.
-- **Visuals are low-fidelity by design** — flat-shaded low-poly. Terrain, water,
-  avatars and stations are procedural; trees, boulders/ore rocks and camp props
-  use bundled **KayKit** CC0 models (`Resources/KayKit/`, see
-  `ThirdParty/ATTRIBUTION.md`), each with a procedural fallback if missing.
-  Depth bands are chambers at world offsets with their own fog/lighting.
-  Recreate the feel, not the vertices.
+Flat-shaded low-poly. Terrain, water, avatars and stations are procedural;
+trees, boulders/ore rocks and props use bundled **KayKit** CC0 models
+(`Resources/KayKit/`, see `ThirdParty/ATTRIBUTION.md`), each with a
+procedural fallback if missing. Sound is **fully procedural** (`Sfx.cs`) —
+every clip synthesized from sines and noise at first play; no audio assets.
 
 ## Using your own assets (Unity editor)
 
-Every model the world spawns can be replaced with **your own prefab** from the
-Unity editor — no code, no file renaming:
+Every model the world spawns can be replaced with **your own prefab** — no
+code, no file renaming:
 
 1. In the Project window, right-click inside `Assets/Elderholt/Resources` →
    **Create → Elderholt → Asset Set**. Keep the default name **`ElderholtAssets`**
@@ -139,54 +95,37 @@ Unity editor — no code, no file renaming:
    Copper/Tin/Iron, Boulder, Barrel, Crate, Torch, …). Anything a named slot
    doesn't cover, add under **Extra Overrides** keyed by the model's path
    (e.g. `KayKit/Props/keg`) or just its name (`keg`).
-3. Press Play. Your assets appear wherever the defaults used to; empty slots keep
-   the bundled KayKit model, and a missing model still falls back to procedural
-   geometry — so partial sets are fine and nothing breaks.
+3. Press Play. Your assets appear wherever the defaults used to; empty slots
+   keep the bundled KayKit model, and a missing model still falls back to
+   procedural geometry.
 
-### Big local-only packs (e.g. Quaternius Medieval Village MegaKit)
-
-Large third-party packs (Asset Store, or a big itch.io kit) shouldn't go in the
-shared repo — clones stay small and you avoid the file-size limits. Import them
-**per-machine** and keep them out of git:
-
-1. Download the pack and use its **FBX** files (Unity imports FBX natively; glTF
-   needs the extra *glTFast* package, so prefer FBX where the pack offers it).
-2. Drop the unzipped folder into **`Assets/ThirdPartyLocal/`** — that path is
-   gitignored, so it stays local to your machine.
-3. On the `ElderholtAssets` set, the **Medieval village** slots hook a few pieces
-   straight into Bracken Cross: **House** (the two built High Street lots),
-   **Market Stall** (replaces the procedural day stalls), **Well** (Market Square
-   centrepiece), **Cart** + **Fence** (Caravan Field), **Lantern** (gates &
-   square). Anything else goes in **Extra Overrides** by path/name as above.
-4. Modular kits (walls/roofs you assemble into houses) are best hand-placed in a
-   scene rather than dropped in one piece at a time — ask and I'll set up a scene
-   + placement helper that keeps the procedural world underneath.
-
-(New to imported models looking grey/untextured? Select the `.fbx`, open the
-**Materials** tab in the Inspector, and **Extract Textures / Extract Materials** —
-FBX packs import geometry first and need the texture atlas pointed at once.)
-- **UI** is IMGUI (`OnGUI`) so the slice runs with zero asset setup.
+Large third-party packs (Asset Store, itch.io kits) go in
+**`Assets/ThirdPartyLocal/`** — that path is gitignored, so clones stay small.
+Prefer FBX (Unity imports it natively). If imports look grey, select the
+`.fbx` → **Materials** tab → **Extract Textures / Extract Materials**.
 
 ## File layout
 
 ```
 Assets/Elderholt/Scripts/
-  ElderholtBootstrap.cs      host: tick loop, camera, input, panels, wiring
+  ElderholtBootstrap.cs      host: title/pause shell, tick loop, camera, input, HUD
   Server/
-    ZoneServer.cs            authoritative zone core (the "Durable Object")
+    ZoneServer.cs            authoritative zone core; mountain-seeded node layout
     MiningSystems.cs         swings/grades, strikes, seams, prospect, instability,
-                             cave-ins, shoring, bands, wedge, perks
+                             cave-ins (death), shoring, bands, the Heart, perks
     SmithingSystems.cs       furnace smelting; anvil heat/hammer/quench sessions
-    EconomySystems.cs        market stall (buyer of last resort) + caravan contracts
-    Items.cs                 item ids, prices, recipes, depth-band definitions
+    EconomySystems.cs        market stall, the Vault, level-scaled caravan orders
+    Items.cs                 item ids, prices, recipes, the 11 depth bands
     Protocol.cs              intents, snapshots, events
-    SaveData.cs              persistence model + XP curve
+    SaveData.cs              persistence model (incl. mountain seed) + XP curve
+    TileMap.cs               per-band walkability grids + A* pathing
   Client/
     ClientHost.cs            host interface + timed-snapshot struct
-    GameClient.cs            local player: snapshots -> HUD/chat/floats/notes
-    BotClient.cs             Fenn: mines, hauls ore to the stall, braces the wedge
+    GameClient.cs            snapshots -> HUD/floats/notes/SFX; win state
+    BotClient.cs             headless client (kept as a future balance tester)
+    Sfx.cs                   procedural sound synthesis, no audio assets
   World/
-    ThornmereWorld.cs        terrain, river, birches, camp, mine, band chambers
-    Avatar.cs                blocky figure + walk/mine/wedge/smith animation
+    ThornmereWorld.cs        camp city, quarry, 10 band chambers, the Heart
+    Avatar.cs                blocky figure + walk/mine/smith animation
     Geo.cs                   low-poly mesh + palette helpers, click-ref components
 ```

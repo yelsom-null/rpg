@@ -52,3 +52,12 @@ crashlytics-build.properties
 # MCP for Unity local state
 /Library/mcp-for-unity*
 .mcp-for-unity/
+
+# Local-only third-party asset packs: imported per-machine, NOT committed to the
+# shared repo (keeps clones small and sidesteps the file-size limits). Drop big
+# packs like the Quaternius Medieval Village MegaKit here; assign their prefabs
+# to the ElderholtAssets override slots. See Assets/Elderholt/README.md.
+# (The explicit *.meta line re-ignores metas the global !*.meta rule un-ignores.)
+/Assets/ThirdPartyLocal/
+/Assets/ThirdPartyLocal.meta
+/Assets/ThirdPartyLocal/**/*.meta
